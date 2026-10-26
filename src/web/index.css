@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+@layer base {
+  /* Estilos para impresión de comprobantes internos */
+  @media print {
+    body {
+      background: white !important;
+      color: black !important;
+    }
+    .no-print {
+      display: none !important;
+    }
+    .print-only {
+      display: block !important;
+    }
+  }
+}

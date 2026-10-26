@@ -1,0 +1,6 @@
+# Copiar este archivo como `.dev.vars` para desarrollo local. NUNCA commitear `.dev.vars`.
+# En demo/producción, cargar como secreto:  npx wrangler secret put SETUP_TOKEN --env production
+
+# Token de un solo uso para crear el primer administrador desde la pantalla "Configuración inicial".
+# Solo funciona mientras no exista ningún usuario. Usar un valor largo y aleatorio.
+SETUP_TOKEN=cambiar-por-un-valor-aleatorio-largo

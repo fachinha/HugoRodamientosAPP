@@ -1,0 +1,6 @@
+sku,codigo_barras,nombre,descripcion,marca,categoria,unidad,precio_venta,costo,stock_inicial,stock_minimo,stock_objetivo
+6205-2RS,7316576620527,Rulemán 6205 2RS blindado goma,Rodamiento rígido 25x52x15 mm,SKF,Rulemanes rígidos,unidad,18500.00,9500.00,20,8,30
+6004-ZZ,4012801160045,Rulemán 6004 ZZ blindaje metálico,Rodamiento rígido 20x42x12 mm,FAG,Rulemanes rígidos,unidad,14200.00,7200.00,15,6,25
+30206-J2,0538933020621,Rulemán cónico 30206 masa de rueda,Rodamiento cónico 30x62x17.25 mm,Timken,Rulemanes cónicos,unidad,29800.00,16000.00,8,4,16
+RET-355008,7798035500801,Retén 35x50x8 NBR labio simple,Retén para eje de 35 mm con resorte,Corteco,Retenes,unidad,8900.00,3800.00,30,10,40
+COR-10A0900,,Correa en V perfil 10A largo 900mm,Correa de alternador,Gates,Correas,unidad,7400.00,3600.00,12,5,20
