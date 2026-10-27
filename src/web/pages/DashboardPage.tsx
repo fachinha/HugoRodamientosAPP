@@ -43,7 +43,7 @@ export const DashboardPage: React.FC = () => {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="flex items-center gap-2 text-slate-500 text-sm">
-          <RefreshCw className="h-4 w-4 animate-spin text-sky-600" />
+          <RefreshCw className="h-4 w-4 animate-spin text-orange-600" />
           <span>Cargando panel de control...</span>
         </div>
       </div>
@@ -72,13 +72,13 @@ export const DashboardPage: React.FC = () => {
         <div>
           <h2 className="text-xl font-bold text-slate-900 tracking-tight">Panel de Control</h2>
           <p className="text-xs text-slate-500">
-            Resumen operativo y alertas prioritarias de stock para Rodamientos Hugo.
+            Resumen operativo y alertas prioritarias de stock para Hugo Repuestos / Rodamientos Hugo.
           </p>
         </div>
         <div className="flex items-center gap-2.5">
           <Link
             to="/pos"
-            className="inline-flex items-center gap-2 px-3.5 py-2 bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors"
+            className="inline-flex items-center gap-2 px-3.5 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors"
           >
             <ShoppingCart className="h-4 w-4" />
             <span>Punto de venta</span>
@@ -100,7 +100,7 @@ export const DashboardPage: React.FC = () => {
           <div>
             <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Productos en catálogo</p>
             <h3 className="text-2xl font-bold text-slate-900 mt-1">{data?.productsCount ?? 0}</h3>
-            <Link to="/products" className="text-xs text-sky-600 hover:underline mt-1 inline-flex items-center gap-1">
+            <Link to="/products" className="text-xs text-orange-600 hover:underline mt-1 inline-flex items-center gap-1">
               <span>Ver catálogo</span>
               <ArrowRight className="h-3 w-3" />
             </Link>
@@ -186,7 +186,7 @@ export const DashboardPage: React.FC = () => {
             <Clock className="h-4 w-4 text-slate-500" />
             <h3 className="text-sm font-bold text-slate-900">Últimos movimientos de stock registrados</h3>
           </div>
-          <Link to="/movements" className="text-xs text-sky-600 hover:underline font-medium">
+          <Link to="/movements" className="text-xs text-orange-600 hover:underline font-medium">
             Ver historial completo
           </Link>
         </div>

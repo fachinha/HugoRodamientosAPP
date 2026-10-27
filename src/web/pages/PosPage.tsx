@@ -21,6 +21,7 @@ import { formatARS } from '../../shared/money';
 import { formatDateTime } from '../../shared/time';
 import { useAuth } from '../context/AuthContext';
 import { useNetworkStatus } from '../hooks/useNetworkStatus';
+import { Logo } from '../components/Logo';
 import type { SaleDetail } from '../../worker/services/sales.service';
 
 interface CartItem {
@@ -282,7 +283,7 @@ export const PosPage: React.FC = () => {
         <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden flex flex-col min-h-[460px]">
           <div className="p-4 border-b border-slate-200 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <ShoppingCart className="h-4 w-4 text-sky-600" />
+              <ShoppingCart className="h-4 w-4 text-orange-600" />
               <h3 className="text-sm font-bold text-slate-900">
                 Artículos en la venta actual ({cart.reduce((a, b) => a + b.quantity, 0)})
               </h3>
@@ -441,7 +442,7 @@ export const PosPage: React.FC = () => {
                   onClick={() => setSelectedPaymentMethodId(pm.id)}
                   className={`px-3 py-2 text-xs font-semibold rounded-lg border text-center transition-all cursor-pointer ${
                     selectedPaymentMethodId === pm.id
-                      ? 'bg-sky-50 border-sky-600 text-sky-800 ring-1 ring-sky-600'
+                      ? 'bg-orange-50 border-orange-600 text-orange-900 ring-1 ring-orange-600'
                       : 'border-slate-200 text-slate-700 hover:bg-slate-50'
                   }`}
                 >
@@ -513,7 +514,7 @@ export const PosPage: React.FC = () => {
               <button
                 type="button"
                 onClick={handleManualSearch}
-                className="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold rounded-lg"
+                className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-semibold rounded-lg"
               >
                 {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Buscar'}
               </button>
@@ -545,7 +546,7 @@ export const PosPage: React.FC = () => {
                           addToCart(prod);
                           setSearchModalOpen(false);
                         }}
-                        className="px-2.5 py-1.5 bg-sky-600 hover:bg-sky-700 disabled:bg-slate-200 text-white text-xs font-semibold rounded cursor-pointer"
+                        className="px-2.5 py-1.5 bg-orange-600 hover:bg-orange-700 disabled:bg-slate-200 text-white text-xs font-semibold rounded cursor-pointer"
                       >
                         Agregar
                       </button>
@@ -562,12 +563,14 @@ export const PosPage: React.FC = () => {
       {receiptOpen && lastSale && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-5 print:p-0 print:border-none print:shadow-none">
-            {/* Cabecera del comprobante */}
+            {/* Cabecera del comprobante con Logo oficial */}
             <div className="text-center pb-4 border-b border-slate-200">
-              <h3 className="font-bold text-lg text-slate-900">Rodamientos Hugo</h3>
-              <p className="text-xs text-slate-500">Bariloche · Río Negro</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">COMPROBANTE INTERNO DE VENTA</p>
-              <div className="mt-2 text-xs font-mono font-bold text-sky-800 bg-sky-50 py-1 px-2 rounded inline-block">
+              <div className="flex justify-center mb-1">
+                <Logo variant="compact" theme="light" className="h-8 w-auto max-w-[200px]" />
+              </div>
+              <p className="text-xs text-slate-500 font-medium">Bariloche · Río Negro</p>
+              <p className="text-[11px] text-slate-400 mt-0.5 uppercase tracking-wider font-semibold">Comprobante Interno de Venta</p>
+              <div className="mt-2 text-xs font-mono font-bold text-orange-950 bg-orange-50 border border-orange-200 py-1 px-2.5 rounded inline-block">
                 N° {lastSale.saleNumber}
               </div>
             </div>
@@ -657,7 +660,7 @@ export const PosPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setReceiptOpen(false)}
-                className="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold rounded-lg cursor-pointer"
+                className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-semibold rounded-lg cursor-pointer"
               >
                 Nueva venta
               </button>

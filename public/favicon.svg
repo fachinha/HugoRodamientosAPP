@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="14" fill="#09090b" />
+  <g transform="translate(6, 6) skewX(-14)">
+    <!-- Orange racing H with speed spear -->
+    <path d="M 13 8 L 22 8 L 22 44 L 13 44 Z" fill="#FF3500" />
+    <path d="M 30 8 L 39 8 L 39 44 L 30 44 Z" fill="#FF3500" />
+    <path d="M 3 22 L 40 22 L 40 30 L 10 30 Z" fill="#FF3500" />
+  </g>
+</svg>

@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 125" fill="none">
+  <defs>
+    <filter id="hugoGlow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#FF3500" flood-opacity="0.3" />
+    </filter>
+  </defs>
+  <!-- Background badge optional if placed standalone -->
+  <g transform="translate(10, 10)">
+    <!-- Slanted Wordmark -->
+    <g transform="skewX(-16)">
+      <!-- The Racing Orange "H" -->
+      <!-- Left leg -->
+      <path d="M 32 10 L 53 10 L 53 72 L 32 72 Z" fill="#FF3500" filter="url(#hugoGlow)" />
+      <!-- Right leg -->
+      <path d="M 72 10 L 93 10 L 93 72 L 72 72 Z" fill="#FF3500" filter="url(#hugoGlow)" />
+      <!-- Middle crossbar extending left as an aerodynamic spear -->
+      <path d="M 7 36 L 96 36 L 96 49 L 20 49 Z" fill="#FF3500" filter="url(#hugoGlow)" />
+
+      <!-- Top connecting bar over U, G, O -->
+      <path d="M 112 10 L 332 10 L 346 22 L 332 22 L 112 22 Z" fill="currentColor" />
+
+      <!-- Outline U -->
+      <path d="M 114 20 L 130 20 L 130 54 Q 130 68 147 68 Q 164 68 164 54 L 164 20 L 180 20 L 180 54 Q 180 80 147 80 Q 114 80 114 54 Z" fill="currentColor" />
+
+      <!-- Outline G -->
+      <path d="M 194 20 L 258 20 L 258 32 L 210 32 L 210 58 L 242 58 L 242 46 L 226 46 L 226 36 L 258 36 L 258 68 Q 258 80 236 80 L 210 80 Q 194 80 194 60 Z" fill="currentColor" />
+
+      <!-- Outline O -->
+      <path d="M 272 20 L 316 20 Q 338 20 338 48 Q 338 80 316 80 L 272 80 Q 250 80 250 50 Q 250 20 272 20 Z M 274 32 Q 266 32 266 50 Q 266 68 274 68 L 314 68 Q 322 68 322 50 Q 322 32 314 32 Z" fill="currentColor" />
+    </g>
+
+    <!-- TM mark -->
+    <text x="365" y="22" fill="#71717A" font-family="system-ui, sans-serif" font-weight="900" font-size="8">TM</text>
+
+    <!-- R E P U E S T O S -->
+    <text x="185" y="94" fill="currentColor" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="15" letter-spacing="9" text-anchor="middle">REPUESTOS</text>
+
+    <!-- INDUSTRIAL Y AUTOMOTRIZ -->
+    <text x="185" y="108" fill="#A1A1AA" font-family="system-ui, -apple-system, sans-serif" font-weight="700" font-size="7.5" letter-spacing="4" text-anchor="middle">INDUSTRIAL Y AUTOMOTRIZ</text>
+  </g>
+</svg>

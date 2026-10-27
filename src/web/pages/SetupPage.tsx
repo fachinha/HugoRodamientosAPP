@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Disc, Key, User as UserIcon, Lock, Check, AlertCircle, Loader2 } from 'lucide-react';
+import { Key, User as UserIcon, Lock, Check, AlertCircle, Loader2 } from 'lucide-react';
+import { Logo } from '../components/Logo';
 import { apiFetch } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 
@@ -54,13 +55,13 @@ export const SetupPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col justify-center items-center p-4">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8 space-y-6">
-        <div className="text-center space-y-2">
-          <div className="h-14 w-14 rounded-2xl bg-sky-600 flex items-center justify-center text-white mx-auto shadow-md">
-            <Disc className="h-8 w-8" />
+        <div className="text-center space-y-3">
+          <div className="flex justify-center py-1">
+            <Logo variant="full" theme="light" className="h-16 w-auto max-w-[260px]" />
           </div>
-          <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Configuración Inicial</h2>
+          <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">Configuración Inicial</h2>
           <p className="text-xs text-slate-500">
-            Creá la cuenta del primer Administrador para Rodamientos Hugo.
+            Creá la cuenta del primer Administrador para Hugo Repuestos / Rodamientos Hugo.
           </p>
         </div>
 
@@ -145,7 +146,7 @@ export const SetupPage: React.FC = () => {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl shadow-md transition-colors flex items-center justify-center gap-2 cursor-pointer"
+            className="w-full py-3 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-xl shadow-md transition-colors flex items-center justify-center gap-2 cursor-pointer"
           >
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
             <span>Crear administrador inicial</span>

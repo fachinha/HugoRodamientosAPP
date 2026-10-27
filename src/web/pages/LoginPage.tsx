@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router';
-import { Disc, Lock, User as UserIcon, AlertCircle, Loader2 } from 'lucide-react';
+import { Lock, User as UserIcon, AlertCircle, Loader2 } from 'lucide-react';
+import { Logo } from '../components/Logo';
 import { useAuth } from '../context/AuthContext';
 
 export const LoginPage: React.FC = () => {
@@ -30,13 +31,12 @@ export const LoginPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col justify-center items-center p-4">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8 space-y-6">
-        {/* Identidad */}
-        <div className="text-center space-y-2">
-          <div className="h-14 w-14 rounded-2xl bg-sky-600 flex items-center justify-center text-white mx-auto shadow-md">
-            <Disc className="h-8 w-8" />
+        {/* Identidad Oficial Hugo Repuestos */}
+        <div className="text-center space-y-3">
+          <div className="flex justify-center py-1">
+            <Logo variant="full" theme="light" className="h-16 w-auto max-w-[260px]" />
           </div>
-          <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Rodamientos Hugo</h2>
-          <p className="text-xs text-slate-500">Sistema de Gestión de Inventario y Punto de Venta</p>
+          <p className="text-xs text-slate-500 font-medium">Sistema de Gestión de Inventario y Punto de Venta</p>
         </div>
 
         {error && (
@@ -60,7 +60,7 @@ export const LoginPage: React.FC = () => {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="Nombre de usuario..."
-                className="w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+                className="w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
               />
             </div>
           </div>
@@ -77,7 +77,7 @@ export const LoginPage: React.FC = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••••••"
-                className="w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+                className="w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
               />
             </div>
           </div>
@@ -85,7 +85,7 @@ export const LoginPage: React.FC = () => {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 bg-sky-600 hover:bg-sky-700 disabled:bg-slate-300 text-white text-sm font-bold rounded-xl shadow-md transition-colors flex items-center justify-center gap-2 cursor-pointer"
+            className="w-full py-3 bg-orange-600 hover:bg-orange-700 disabled:bg-slate-300 text-white text-sm font-bold rounded-xl shadow-md transition-colors flex items-center justify-center gap-2 cursor-pointer"
           >
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             <span>Iniciar sesión</span>
@@ -94,7 +94,7 @@ export const LoginPage: React.FC = () => {
 
         {!isInitialized && (
           <div className="pt-2 text-center border-t border-slate-100">
-            <Link to="/setup" className="text-xs font-semibold text-sky-600 hover:underline">
+            <Link to="/setup" className="text-xs font-semibold text-orange-600 hover:underline">
               ¿Es la primera vez? Configurar administrador inicial →
             </Link>
           </div>

@@ -89,7 +89,7 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
           onKeyDown={handleKeyDown}
           disabled={isProcessing}
           placeholder={placeholder}
-          className="w-full pl-11 pr-24 py-2.5 bg-white border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 text-sm shadow-xs transition-colors"
+          className="w-full pl-11 pr-24 py-2.5 bg-white border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm shadow-xs transition-colors"
           autoComplete="off"
           spellCheck="false"
         />
@@ -98,7 +98,7 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
             type="button"
             onClick={() => handleProcessCode(inputVal)}
             disabled={isProcessing || !inputVal.trim()}
-            className="inline-flex items-center px-3 py-1.5 bg-sky-600 hover:bg-sky-700 disabled:bg-slate-200 disabled:text-slate-400 text-white text-xs font-medium rounded-md shadow-xs transition-colors cursor-pointer disabled:cursor-not-allowed"
+            className="inline-flex items-center px-3 py-1.5 bg-orange-600 hover:bg-orange-700 disabled:bg-slate-200 disabled:text-slate-400 text-white text-xs font-medium rounded-md shadow-xs transition-colors cursor-pointer disabled:cursor-not-allowed"
           >
             {isProcessing ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />

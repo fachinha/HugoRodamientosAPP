@@ -111,7 +111,7 @@ export const ProductsPage: React.FC = () => {
           <button
             type="button"
             onClick={() => setCreateModalOpen(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors cursor-pointer"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors cursor-pointer"
           >
             <Plus className="h-4 w-4" />
             <span>Nuevo producto</span>
@@ -138,7 +138,7 @@ export const ProductsPage: React.FC = () => {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar por código de barras, SKU, nombre o marca..."
-              className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-sky-500"
+              className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-orange-500"
             />
           </div>
           <button
@@ -181,7 +181,7 @@ export const ProductsPage: React.FC = () => {
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         {loading ? (
           <div className="p-12 flex items-center justify-center text-slate-400 gap-2 text-xs">
-            <Loader2 className="h-4 w-4 animate-spin text-sky-600" />
+            <Loader2 className="h-4 w-4 animate-spin text-orange-600" />
             <span>Cargando catálogo...</span>
           </div>
         ) : products.length === 0 ? (
@@ -281,7 +281,7 @@ export const ProductsPage: React.FC = () => {
                                 type="button"
                                 onClick={() => setEditProduct(p)}
                                 title="Editar producto"
-                                className="p-1.5 text-slate-400 hover:text-sky-600 rounded transition-colors cursor-pointer"
+                                className="p-1.5 text-slate-400 hover:text-orange-600 rounded transition-colors cursor-pointer"
                               >
                                 <Edit2 className="h-3.5 w-3.5" />
                               </button>
@@ -665,7 +665,7 @@ const ProductFormModal: React.FC<{
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+              className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
             >
               {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
               <span>{isEdit ? 'Guardar cambios' : 'Crear producto'}</span>

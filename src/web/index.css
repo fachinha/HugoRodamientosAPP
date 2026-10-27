@@ -1,5 +1,19 @@
 @import "tailwindcss";
 
+@theme {
+  --color-brand-50: #fff5f0;
+  --color-brand-100: #ffe8df;
+  --color-brand-200: #ffd3c2;
+  --color-brand-300: #ffb194;
+  --color-brand-400: #ff7d52;
+  --color-brand-500: #ff3500;
+  --color-brand-600: #ea2b00;
+  --color-brand-700: #c42000;
+  --color-brand-800: #9e1c03;
+  --color-brand-900: #801b08;
+  --color-brand-950: #460900;
+}
+
 @layer base {
   /* Estilos para impresión de comprobantes internos */
   @media print {

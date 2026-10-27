@@ -189,7 +189,7 @@ export const InventoryPage: React.FC = () => {
               }}
               className="inline-flex items-center gap-2 px-3.5 py-2 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded-lg shadow-xs transition-colors cursor-pointer"
             >
-              <Sliders className="h-4 w-4 text-sky-600" />
+              <Sliders className="h-4 w-4 text-orange-600" />
               <span>Ajuste manual (+/−)</span>
             </button>
           </div>
@@ -324,9 +324,9 @@ export const InventoryPage: React.FC = () => {
               </div>
 
               {selectedProduct && (
-                <div className="p-3 bg-sky-50 border border-sky-200 rounded-lg text-xs space-y-1">
-                  <p className="font-bold text-sky-900">{selectedProduct.name}</p>
-                  <p className="text-sky-700 font-mono">SKU: {selectedProduct.sku} · Stock actual: {selectedProduct.stock}</p>
+                <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg text-xs space-y-1">
+                  <p className="font-bold text-orange-950">{selectedProduct.name}</p>
+                  <p className="text-orange-800 font-mono">SKU: {selectedProduct.sku} · Stock actual: {selectedProduct.stock}</p>
                 </div>
               )}
 
@@ -487,7 +487,7 @@ export const InventoryPage: React.FC = () => {
                 <button
                   type="submit"
                   disabled={!selectedProduct || !reason.trim() || submitting}
-                  className="px-4 py-2 bg-sky-600 hover:bg-sky-700 disabled:bg-slate-300 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                  className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-slate-300 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
                 >
                   {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                   <span>Confirmar ajuste</span>

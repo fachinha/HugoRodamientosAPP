@@ -13,8 +13,8 @@ import {
   X,
   WifiOff,
   User as UserIcon,
-  Disc,
 } from 'lucide-react';
+import { Logo } from './Logo';
 import { useAuth } from '../context/AuthContext';
 import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import { formatDate } from '../../shared/time';
@@ -64,14 +64,14 @@ export const Layout: React.FC<LayoutProps> = ({ alertCount = 0 }) => {
       <div className="flex-1 flex overflow-hidden">
         {/* Barra lateral escritorio */}
         <aside className="hidden md:flex flex-col w-64 bg-slate-900 text-slate-200 border-r border-slate-800 no-print">
-          {/* Identidad visual provisional */}
-          <div className="p-4 border-b border-slate-800 flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-sky-600 flex items-center justify-center text-white shadow-md">
-              <Disc className="h-6 w-6 animate-spin-slow" />
-            </div>
-            <div>
-              <h1 className="font-bold text-base text-white tracking-tight leading-tight">Rodamientos Hugo</h1>
-              <p className="text-xs text-slate-400">Bariloche · Repuestos</p>
+          {/* Identidad visual oficial Hugo Repuestos (@hugo_repuestos) */}
+          <div className="p-4 border-b border-slate-800 flex flex-col gap-2 bg-slate-950/60">
+            <div className="flex items-center gap-3">
+              <Logo variant="mark" />
+              <div className="min-w-0 flex-1">
+                <Logo variant="compact" theme="dark" className="h-7 w-auto" />
+                <p className="text-[10px] text-zinc-400 tracking-wider uppercase font-medium">Bariloche · Repuestos</p>
+              </div>
             </div>
           </div>
 
@@ -85,7 +85,7 @@ export const Layout: React.FC<LayoutProps> = ({ alertCount = 0 }) => {
                 className={({ isActive }) =>
                   `flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                     isActive
-                      ? 'bg-sky-600 text-white shadow-xs'
+                      ? 'bg-orange-600 text-white shadow-xs font-semibold'
                       : 'text-slate-300 hover:bg-slate-800 hover:text-white'
                   }`
                 }
@@ -132,17 +132,15 @@ export const Layout: React.FC<LayoutProps> = ({ alertCount = 0 }) => {
         {/* Contenido principal */}
         <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
           {/* Header móvil / barra superior */}
-          <header className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between md:hidden no-print">
+          <header className="bg-slate-900 border-b border-slate-800 px-4 py-2.5 flex items-center justify-between md:hidden no-print">
             <div className="flex items-center gap-2.5">
-              <div className="h-8 w-8 rounded-md bg-sky-600 flex items-center justify-center text-white">
-                <Disc className="h-5 w-5" />
-              </div>
-              <span className="font-bold text-slate-900 text-sm">Rodamientos Hugo</span>
+              <Logo variant="mark" />
+              <Logo variant="compact" theme="dark" className="h-6 w-auto" />
             </div>
             <button
               type="button"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2 text-slate-600 hover:bg-slate-100 rounded-md"
+              className="p-2 text-slate-300 hover:bg-slate-800 rounded-md"
             >
               {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
@@ -159,7 +157,7 @@ export const Layout: React.FC<LayoutProps> = ({ alertCount = 0 }) => {
                   onClick={() => setMobileMenuOpen(false)}
                   className={({ isActive }) =>
                     `flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium ${
-                      isActive ? 'bg-sky-600 text-white' : 'text-slate-300 hover:bg-slate-800'
+                      isActive ? 'bg-orange-600 text-white font-semibold' : 'text-slate-300 hover:bg-slate-800'
                     }`
                   }
                 >

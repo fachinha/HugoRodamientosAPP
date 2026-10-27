@@ -277,7 +277,7 @@ export const SettingsPage: React.FC = () => {
           onClick={() => setActiveTab('business')}
           className={`px-4 py-2 text-xs font-semibold border-b-2 cursor-pointer whitespace-nowrap ${
             activeTab === 'business'
-              ? 'border-sky-600 text-sky-600'
+              ? 'border-orange-600 text-orange-600'
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
@@ -288,7 +288,7 @@ export const SettingsPage: React.FC = () => {
           onClick={() => setActiveTab('payment')}
           className={`px-4 py-2 text-xs font-semibold border-b-2 cursor-pointer whitespace-nowrap ${
             activeTab === 'payment'
-              ? 'border-sky-600 text-sky-600'
+              ? 'border-orange-600 text-orange-600'
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
@@ -300,7 +300,7 @@ export const SettingsPage: React.FC = () => {
             onClick={() => setActiveTab('users')}
             className={`px-4 py-2 text-xs font-semibold border-b-2 cursor-pointer whitespace-nowrap ${
               activeTab === 'users'
-                ? 'border-sky-600 text-sky-600'
+                ? 'border-orange-600 text-orange-600'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
@@ -313,7 +313,7 @@ export const SettingsPage: React.FC = () => {
             onClick={() => setActiveTab('import')}
             className={`px-4 py-2 text-xs font-semibold border-b-2 cursor-pointer whitespace-nowrap ${
               activeTab === 'import'
-                ? 'border-sky-600 text-sky-600'
+                ? 'border-orange-600 text-orange-600'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
@@ -325,7 +325,7 @@ export const SettingsPage: React.FC = () => {
           onClick={() => setActiveTab('scanner')}
           className={`px-4 py-2 text-xs font-semibold border-b-2 cursor-pointer whitespace-nowrap ${
             activeTab === 'scanner'
-              ? 'border-sky-600 text-sky-600'
+              ? 'border-orange-600 text-orange-600'
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
@@ -405,7 +405,7 @@ export const SettingsPage: React.FC = () => {
                 <button
                   type="submit"
                   disabled={savingSettings}
-                  className="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                  className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
                 >
                   {savingSettings ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                   <span>Guardar configuración</span>
@@ -478,7 +478,7 @@ export const SettingsPage: React.FC = () => {
             <button
               type="button"
               onClick={() => setUserModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold rounded-lg"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-semibold rounded-lg"
             >
               <Plus className="h-4 w-4" />
               <span>Nuevo usuario</span>
@@ -589,7 +589,7 @@ export const SettingsPage: React.FC = () => {
                     </button>
                     <button
                       type="submit"
-                      className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded text-xs font-semibold"
+                      className="px-4 py-1.5 bg-orange-600 hover:bg-orange-700 text-white rounded text-xs font-semibold"
                     >
                       Guardar usuario
                     </button>
@@ -635,7 +635,7 @@ export const SettingsPage: React.FC = () => {
 
             <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:bg-slate-50/50 transition-colors">
               <Upload className="h-8 w-8 text-slate-400 mx-auto mb-2" />
-              <label className="cursor-pointer text-xs font-semibold text-sky-600 hover:underline block">
+              <label className="cursor-pointer text-xs font-semibold text-orange-600 hover:underline block">
                 <span>Elegir archivo CSV o Excel (.xlsx)</span>
                 <input type="file" accept=".csv, .xlsx, .xls" onChange={handleFileSelect} className="hidden" />
               </label>
@@ -683,7 +683,7 @@ export const SettingsPage: React.FC = () => {
                       type="checkbox"
                       checked={skipInvalid}
                       onChange={(e) => setSkipInvalid(e.target.checked)}
-                      className="rounded text-sky-600"
+                      className="rounded text-orange-600"
                     />
                     <span>Omitir filas inválidas e importar las válidas</span>
                   </label>
@@ -692,7 +692,7 @@ export const SettingsPage: React.FC = () => {
                       type="checkbox"
                       checked={updateExisting}
                       onChange={(e) => setUpdateExisting(e.target.checked)}
-                      className="rounded text-sky-600"
+                      className="rounded text-orange-600"
                     />
                     <span>Actualizar precios y datos de productos existentes (sin tocar su stock actual)</span>
                   </label>
@@ -777,7 +777,7 @@ export const SettingsPage: React.FC = () => {
                 {scannedLogs.map((log, i) => (
                   <div key={i} className="p-2.5 flex items-center justify-between hover:bg-slate-50">
                     <div className="flex items-center gap-3">
-                      <Barcode className="h-4 w-4 text-sky-600" />
+                      <Barcode className="h-4 w-4 text-orange-600" />
                       <span className="font-bold text-slate-900">{log.code}</span>
                       <span className="text-[10px] text-slate-400">({log.code.length} caracteres)</span>
                     </div>

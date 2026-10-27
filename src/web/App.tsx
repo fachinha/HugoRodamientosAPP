@@ -21,8 +21,8 @@ const ProtectedRoute: React.FC<{ children: React.ReactElement }> = ({ children }
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white gap-2 text-xs">
-        <Loader2 className="h-5 w-5 animate-spin text-sky-500" />
-        <span>Iniciando Rodamientos Hugo...</span>
+        <Loader2 className="h-5 w-5 animate-spin text-orange-500" />
+        <span>Iniciando Hugo Repuestos...</span>
       </div>
     );
   }

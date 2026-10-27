@@ -86,7 +86,7 @@ export const MovementsPage: React.FC = () => {
             onClick={handleExportCsv}
             className="inline-flex items-center gap-2 px-3.5 py-2 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded-lg shadow-xs transition-colors cursor-pointer"
           >
-            <Download className="h-4 w-4 text-sky-600" />
+            <Download className="h-4 w-4 text-orange-600" />
             <span>Exportar CSV</span>
           </button>
         )}
@@ -153,7 +153,7 @@ export const MovementsPage: React.FC = () => {
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         {loading ? (
           <div className="p-12 text-center text-slate-400 text-xs flex justify-center items-center gap-2">
-            <Loader2 className="h-4 w-4 animate-spin text-sky-600" />
+            <Loader2 className="h-4 w-4 animate-spin text-orange-600" />
             <span>Cargando movimientos...</span>
           </div>
         ) : movements.length === 0 ? (

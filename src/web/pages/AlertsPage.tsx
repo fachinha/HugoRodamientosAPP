@@ -158,7 +158,7 @@ export const AlertsPage: React.FC = () => {
             <button
               type="button"
               onClick={() => setStatusFilter('all')}
-              className="text-xs text-sky-600 hover:underline font-medium"
+              className="text-xs text-orange-600 hover:underline font-medium"
             >
               Mostrar todos
             </button>
@@ -167,7 +167,7 @@ export const AlertsPage: React.FC = () => {
 
         {loading ? (
           <div className="p-12 flex items-center justify-center text-slate-400 gap-2 text-xs">
-            <Loader2 className="h-4 w-4 animate-spin text-sky-600" />
+            <Loader2 className="h-4 w-4 animate-spin text-orange-600" />
             <span>Calculando alertas de inventario...</span>
           </div>
         ) : alerts.length === 0 ? (
