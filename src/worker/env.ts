@@ -8,6 +8,8 @@ export interface Bindings {
   SESSION_TTL_HOURS: string;
   /** Secreto opcional para crear el primer administrador. */
   SETUP_TOKEN?: string;
+  /** API Key de Google Gemini para procesamiento de facturas con IA. */
+  GEMINI_API_KEY?: string;
 }
 
 export interface SessionUser {
@@ -30,4 +32,5 @@ export interface ServiceContext {
   db: D1Database;
   user: SessionUser;
   ip: string | null;
+  geminiApiKey?: string;
 }

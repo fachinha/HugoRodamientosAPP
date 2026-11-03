@@ -4,3 +4,7 @@
 # Token de un solo uso para crear el primer administrador desde la pantalla "Configuración inicial".
 # Solo funciona mientras no exista ningún usuario. Usar un valor largo y aleatorio.
 SETUP_TOKEN=cambiar-por-un-valor-aleatorio-largo
+
+# Clave de API de Google Gemini para lectura inteligente de facturas en PDF (opcional en local si se mockea, requerida para IA en vivo).
+# Obtener gratis en: https://aistudio.google.com/
+GEMINI_API_KEY=tu-gemini-api-key-aqui

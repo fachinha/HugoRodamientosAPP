@@ -296,3 +296,92 @@ export const importRequestSchema = z.object({
   updateExisting: z.boolean().default(false),
   skipInvalid: z.boolean().default(false),
 });
+
+// ---------------------------------------------------------------------------
+// Facturas de proveedores (Ingreso inteligente con IA)
+// ---------------------------------------------------------------------------
+export const invoiceParsedItemSchema = z.object({
+  supplierCode: z.string().trim(),
+  description: z.string().trim(),
+  brand: z.string().trim().nullish(),
+  quantity: z.number().int().min(1),
+  listPriceCents: z.number().int().min(0).default(0),
+  discountPercent: z.number().min(0).max(100).default(0),
+  netUnitCostCents: z.number().int().min(0),
+  totalNetCents: z.number().int().min(0).default(0),
+  lineType: z.enum(['product', 'charge']).default('product'),
+});
+export type InvoiceParsedItem = z.infer<typeof invoiceParsedItemSchema>;
+
+export const invoiceParsedHeaderSchema = z.object({
+  supplierName: z.string().trim().min(1),
+  supplierCuit: z.string().trim().nullish(),
+  invoiceType: z.string().trim().default('A'),
+  invoiceNumber: z.string().trim().min(1),
+  invoiceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida (YYYY-MM-DD)'),
+  subtotalNetCents: z.number().int().min(0).default(0),
+  taxCents: z.number().int().min(0).default(0),
+  totalCents: z.number().int().min(0).default(0),
+  items: z.array(invoiceParsedItemSchema),
+});
+export type InvoiceParsedHeader = z.infer<typeof invoiceParsedHeaderSchema>;
+
+export type MatchType = 'exact_sku' | 'alias' | 'barcode' | 'fuzzy' | 'new_item' | 'charge';
+
+export interface InvoiceMatchedItem extends InvoiceParsedItem {
+  id: string; // Identificador temporal de fila en UI
+  matchType: MatchType;
+  matchedProductId: number | null;
+  matchedProductSku: string | null;
+  matchedProductName: string | null;
+  currentStock: number | null;
+  currentCostCents: number | null;
+  currentPriceCents: number | null;
+  costDiffPercent: number | null; // Variación porcentual (ej: +14.2)
+  suggestedPriceCents: number | null;
+  // Acciones en la UI
+  action: 'update_stock' | 'create_and_stock' | 'skip';
+  newSku?: string;
+  newName?: string;
+  newBrand?: string;
+  newPriceCents?: number;
+  newCostCents?: number;
+  updatePrice: boolean;
+  saveAlias: boolean;
+}
+
+export const invoiceConfirmItemSchema = z.object({
+  action: z.enum(['update_stock', 'create_and_stock', 'skip']),
+  supplierCode: z.string().trim(),
+  quantity: z.number().int().min(1),
+  netUnitCostCents: z.number().int().min(0),
+  productId: z.number().int().positive().optional(),
+  newProduct: z
+    .object({
+      sku: z.string().trim().min(1).max(64),
+      name: z.string().trim().min(1).max(200),
+      brand: z.string().trim().max(80).nullish(),
+      categoryName: z.string().trim().max(80).nullish(),
+      priceCents: z.number().int().min(0),
+      costCents: z.number().int().min(0),
+      minStock: z.number().int().min(0).nullish(),
+    })
+    .optional(),
+  updatePrice: z.boolean().default(false),
+  newPriceCents: z.number().int().min(0).optional(),
+  saveAlias: z.boolean().default(true),
+});
+
+export const invoiceConfirmRequestSchema = z.object({
+  idempotencyKey: idempotencyKeySchema,
+  supplierName: z.string().trim().min(1).max(120),
+  supplierCuit: z.string().trim().max(20).nullish(),
+  invoiceNumber: z.string().trim().min(1).max(50),
+  invoiceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha en formato YYYY-MM-DD'),
+  subtotalCents: z.number().int().min(0).default(0),
+  taxCents: z.number().int().min(0).default(0),
+  totalCents: z.number().int().min(0).default(0),
+  notes: z.string().trim().max(500).nullish(),
+  items: z.array(invoiceConfirmItemSchema).min(1, 'Debe incluir al menos un artículo a ingresar'),
+});
+export type InvoiceConfirmRequest = z.infer<typeof invoiceConfirmRequestSchema>;

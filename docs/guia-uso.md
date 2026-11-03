@@ -134,6 +134,27 @@ Si al realizar un conteo físico en la estantería la cantidad no coincide con e
    - *"Devolución de muestra a taller"*
 5. El sistema calcula la diferencia automáticamente (+ o -) y registra el movimiento `ADJUSTMENT` inalterable en el kardex.
 
+### 5.3. Carga Inteligente de Facturas de Proveedores con IA (PDF)
+Para ingresar pedidos voluminosos de distribuidores mayoristas (como *Movimiento Mecánico S.R.L.*, *Alfa Rodamientos*, *ICEPAR*, *CEDISA*, etc.) sin tipear a mano decenas de códigos:
+1. Dirigite a **Inventario** (`/inventory`) y hacé clic en el botón naranja **Cargar Factura (PDF / IA)** o en la pestaña **Facturas de Compra**.
+2. **Subida del Comprobante:** Arrastrá o seleccioná el archivo PDF original de la factura digital del proveedor (hasta 15 MB).
+3. **Extracción Multimodal con IA:** El sistema analiza la factura con Google Gemini 2.0 Flash:
+   - Extrae automáticamente razón social, CUIT, número de comprobante, fecha de emisión, subtotal, IVA y total facturado.
+   - Desglosa cada ítem facturado: código del proveedor, descripción, cantidad y costo unitario neto efectivo (calculado descontando las bonificaciones de línea y del pie de factura).
+   - Detecta y clasifica automáticamente cargos no inventariables (fletes, seguros, percepciones) marcándolos para omitir (`skip`) sin alterar el stock.
+4. **Homologación y Simulación Previa (Dry-Run):** La ventana de revisión interactiva cruza cada código contra la base de datos de Rodamientos Hugo:
+   - 🟢 **SKU exacto:** Coincide directamente con un código interno del catálogo.
+   - 🟡 **Alias guardado:** El sistema recuerda correspondencias previas confirmadas para ese proveedor.
+   - 🔵 **Código de barras:** Coincide con códigos EAN-13 registrados.
+   - 🟣 **Sugerido:** Hallazgo por similitud de texto o código parcial.
+   - 🔵 **Nuevo producto:** Ítems no presentes en el catálogo; el sistema permite crearlos directamente con SKU y nombre precompletados.
+   - **Variación de Costo (%):** Muestra la diferencia porcentual respecto al último costo conocido (ej: `+12.5%` o `-3.2%`) y sugiere actualizar el precio de venta manteniendo el margen habitual.
+5. **Confirmación Atómica:** Al presionar **Confirmar e Ingresar al Stock**:
+   - Se incrementa el stock de cada producto en una única transacción atómica en SQLite D1.
+   - Se asientan los movimientos inmutables en el Kardex (`stock_movements`) vinculados al comprobante.
+   - Se guardan los alias confirmados para que futuras facturas del mismo proveedor se homoloquen al 100% de manera instantánea.
+   - El comprobante queda archivado en el historial para consultas posteriores con su detalle completo.
+
 ---
 
 ## 6. Sistema de Alertas y Reposición Automática

@@ -8,7 +8,8 @@ import { AlertsService } from '../services/alerts.service';
 import { DashboardService } from '../services/dashboard.service';
 import { SettingsService } from '../services/settings.service';
 import { ImportExportService } from '../services/import-export.service';
-import { parseOrThrow } from '../lib/errors';
+import { InvoicesService } from '../services/invoices.service';
+import { Errors, parseOrThrow } from '../lib/errors';
 import {
   productCreateSchema,
   productUpdateSchema,
@@ -26,6 +27,7 @@ import {
   userCreateSchema,
   userUpdateSchema,
   importRequestSchema,
+  invoiceConfirmRequestSchema,
 } from '../../shared/schemas';
 
 export const apiRoutes = new Hono<AppEnv>();
@@ -38,6 +40,7 @@ function createCtx(c: any): ServiceContext {
     db: c.env.DB,
     user: c.get('user'),
     ip: getClientIp(c),
+    geminiApiKey: c.env.GEMINI_API_KEY,
   };
 }
 
@@ -297,4 +300,59 @@ apiRoutes.get('/exports/movements.csv', requireAdmin, async (c) => {
       'Content-Disposition': 'attachment; filename="movimientos-stock-rodamientos-hugo.csv"',
     },
   });
+});
+
+// ---------------------------------------------------------------------------
+// Facturas de proveedores (Ingreso inteligente con IA)
+// ---------------------------------------------------------------------------
+apiRoutes.post('/invoices/parse', requireAdmin, async (c) => {
+  const formData = await c.req.formData();
+  const file = formData.get('file');
+
+  if (!file || !(file instanceof File)) {
+    throw Errors.badRequest('Debes subir un archivo PDF de factura (campo "file").');
+  }
+
+  if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+    throw Errors.badRequest('El archivo debe ser un documento PDF (.pdf).');
+  }
+
+  const bytes = await file.arrayBuffer();
+
+  // Soporte de mock inyectado para tests automatizados rápidos
+  let mockHeader: any = undefined;
+  const testHeaderRaw = c.req.header('x-test-invoice-data');
+  if (testHeaderRaw) {
+    try {
+      mockHeader = JSON.parse(testHeaderRaw);
+    } catch {
+      // Ignorar si no es JSON válido
+    }
+  }
+
+  const service = new InvoicesService(createCtx(c));
+  const result = await service.parseAndMatch(bytes, mockHeader);
+  return c.json(result);
+});
+
+apiRoutes.post('/invoices/confirm', requireAdmin, async (c) => {
+  const body = parseOrThrow(invoiceConfirmRequestSchema, await c.req.json());
+  const service = new InvoicesService(createCtx(c));
+  const result = await service.confirmIntake(body);
+  return c.json(result, 201);
+});
+
+apiRoutes.get('/invoices', requireAdmin, async (c) => {
+  const page = c.req.query('page') ? Number(c.req.query('page')) : 1;
+  const pageSize = c.req.query('pageSize') ? Number(c.req.query('pageSize')) : 20;
+  const service = new InvoicesService(createCtx(c));
+  const data = await service.listInvoices({ page, pageSize });
+  return c.json(data);
+});
+
+apiRoutes.get('/invoices/:id', requireAdmin, async (c) => {
+  const id = Number(c.req.param('id'));
+  const service = new InvoicesService(createCtx(c));
+  const data = await service.getInvoiceById(id);
+  return c.json(data);
 });
