@@ -27,7 +27,7 @@ export class InvoicesService {
     if (injectedHeader) {
       parsed = injectedHeader;
     } else {
-      const gemini = new GeminiService(this.ctx.geminiApiKey);
+      const gemini = new GeminiService(this.ctx.geminiApiKey, this.ctx.geminiModel);
       parsed = await gemini.extractInvoiceFromPdf(pdfBytes);
     }
 

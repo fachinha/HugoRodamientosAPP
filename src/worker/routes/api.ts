@@ -41,6 +41,7 @@ function createCtx(c: any): ServiceContext {
     user: c.get('user'),
     ip: getClientIp(c),
     geminiApiKey: c.env.GEMINI_API_KEY,
+    geminiModel: c.env.GEMINI_MODEL,
   };
 }
 

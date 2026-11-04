@@ -1,10 +1,14 @@
 import { Errors } from '../lib/errors';
 import type { InvoiceParsedHeader } from '../../shared/schemas';
 
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
 
 export class GeminiService {
-  constructor(private apiKey?: string) {}
+  private model: string;
+
+  constructor(private apiKey?: string, model?: string) {
+    this.model = model?.trim() || DEFAULT_GEMINI_MODEL;
+  }
 
   /**
    * Envía un archivo PDF a la API multimodal de Gemini Flash y extrae la factura estructurada en JSON.
@@ -80,9 +84,10 @@ Reglas críticas de cálculo financiero y moneda:
       },
     };
 
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.model)}:generateContent`;
     let response: Response;
     try {
-      response = await fetch(`${GEMINI_API_URL}?key=${encodeURIComponent(this.apiKey)}`, {
+      response = await fetch(`${endpoint}?key=${encodeURIComponent(this.apiKey)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

@@ -10,6 +10,8 @@ export interface Bindings {
   SETUP_TOKEN?: string;
   /** API Key de Google Gemini para procesamiento de facturas con IA. */
   GEMINI_API_KEY?: string;
+  /** Modelo de Gemini a utilizar (por defecto gemini-3.8-flash). */
+  GEMINI_MODEL?: string;
 }
 
 export interface SessionUser {
@@ -33,4 +35,5 @@ export interface ServiceContext {
   user: SessionUser;
   ip: string | null;
   geminiApiKey?: string;
+  geminiModel?: string;
 }
