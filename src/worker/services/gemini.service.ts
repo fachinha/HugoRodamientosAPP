@@ -1,11 +1,12 @@
 import { Errors } from '../lib/errors';
 import type { InvoiceParsedHeader } from '../../shared/schemas';
+import { extractText } from 'unpdf';
 
 const CANDIDATE_MODELS = [
+  'gemini-flash-lite-latest',
   'gemini-3.5-flash',
   'gemini-3.6-flash',
   'gemini-3.8-flash',
-  'gemini-3.7-flash',
 ];
 
 export class GeminiService {
@@ -16,8 +17,9 @@ export class GeminiService {
   }
 
   /**
-   * Envía un archivo PDF a la API multimodal de Gemini Flash y extrae la factura estructurada en JSON.
-   * Cuenta con fallback automático en cascada si un modelo reporta alta demanda (503) o saturación (429).
+   * Envía un archivo PDF a la API de Gemini y extrae la factura estructurada en JSON.
+   * Utiliza extracción directa de texto para vector PDFs (rápido, sin saturación 503)
+   * y fallback automático en cascada entre modelos.
    */
   async extractInvoiceFromPdf(pdfBytes: Uint8Array | ArrayBuffer): Promise<InvoiceParsedHeader> {
     if (!this.apiKey || this.apiKey.trim() === '' || this.apiKey === 'tu-gemini-api-key-aqui') {
@@ -26,10 +28,19 @@ export class GeminiService {
       );
     }
 
+    // 1. Intentar extracción de texto directo para evitar saturación de clusters visuales
+    let extractedText = '';
+    try {
+      const { text } = await extractText(new Uint8Array(pdfBytes));
+      extractedText = (Array.isArray(text) ? text.join('\n') : text || '').trim();
+    } catch {
+      extractedText = '';
+    }
+
     const base64Data = Buffer.from(pdfBytes).toString('base64');
 
-    const prompt = `Sos un sistema experto en auditoría contable y compras de repuestos, retenes y rodamientos para el comercio 'Rodamientos Hugo' (San Carlos de Bariloche, Argentina).
-Analizá exhaustivamente este documento PDF de factura de compra comercial (comprobante emitido por distribuidores como SKF, Movimiento Mecánico, Alfa Rodamientos, ICEPAR, Cedisa, etc.) y extraé de forma estricta todos los datos del encabezado y cada uno de los ítems facturados.
+    const promptInstructions = `Sos un sistema experto en auditoría contable y compras de repuestos, retenes y rodamientos para el comercio 'Rodamientos Hugo' (San Carlos de Bariloche, Argentina).
+Analizá exhaustivamente este documento de factura de compra comercial (comprobante emitido por distribuidores como SKF, Movimiento Mecánico, Alfa Rodamientos, ICEPAR, Cedisa, etc.) y extraé de forma estricta todos los datos del encabezado y cada uno de los ítems facturados.
 
 Reglas críticas de cálculo financiero y moneda:
 1. TODOS los importes monetarios deben devolverse en CENTAVOS ENTEROS (pesos multiplicados por 100 y redondeados, sin decimales).
@@ -38,19 +49,28 @@ Reglas críticas de cálculo financiero y moneda:
 4. Número de factura: Incluir punto de venta y número con guion (ej: "0004-00149959" o "0008-00271167").
 5. Clasificá "lineType" como "product" para rulemanes, retenes, correas, crucetas y piezas mecánicas; o "charge" para conceptos no inventariables (flete, transporte, recargos o seguros).`;
 
+    // Si pudimos extraer el texto digital (vector PDF), enviamos texto que consume pocos tokens y evita 503
+    const parts: any[] = extractedText.length > 50
+      ? [
+          {
+            text: `${promptInstructions}\n\nCONTENIDO TEXTUAL DE LA FACTURA:\n${extractedText}`,
+          },
+        ]
+      : [
+          { text: promptInstructions },
+          {
+            inlineData: {
+              mimeType: 'application/pdf',
+              data: base64Data,
+            },
+          },
+        ];
+
     const payload = {
       contents: [
         {
           role: 'user',
-          parts: [
-            { text: prompt },
-            {
-              inlineData: {
-                mimeType: 'application/pdf',
-                data: base64Data,
-              },
-            },
-          ],
+          parts,
         },
       ],
       generationConfig: {
