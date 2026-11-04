@@ -51,7 +51,8 @@ Reglas críticas de cálculo financiero y moneda:
 2. Si un ítem tiene descuento o bonificación por línea (ej: 20% o 55%), y además la factura tiene un descuento global al pie (ej: 25% por pronto pago o comercial), el "netUnitCostCents" DEBE reflejar el costo unitario neto real efectivo que Hugo paga por cada unidad (antes de IVA y percepciones).
 3. Fecha: Formato ISO YYYY-MM-DD. Si en la factura figura DD/MM/AAAA, convertila a YYYY-MM-DD.
 4. Número de factura: Incluir punto de venta y número con guion (ej: "0004-00149959" o "0008-00271167").
-5. Clasificá "lineType" como "product" para rulemanes, retenes, correas, crucetas y piezas mecánicas; o "charge" para conceptos no inventariables (flete, transporte, recargos o seguros).`;
+5. Clasificá "lineType" como "product" para rulemanes, retenes, correas, crucetas y piezas mecánicas; o "charge" para conceptos no inventariables (flete, transporte, recargos o seguros).
+6. Identificación de código y marca: El 'supplierCode' es el código o número de catálogo de parte/pieza (ej: '6711', 'CR1163', '6204-2RSH/C3', 'TR1100', '8399POL /7942.5', '6PK1820', 'VKM 31041'). La 'brand' es el fabricante o marca (ej: 'DBH', 'SKF', 'ETM', 'MICHELIN'). Si en el texto el código aparece pegado a un importe precedente (ej: '16.531,486711 DBH' -> el importe es 16.531,48 y el código de pieza es '6711'), separalo correctamente sin incluir el número monetario en el código.`;
 
     // Si pudimos extraer el texto digital (vector PDF), enviamos texto que consume pocos tokens y evita 503
     let parts: any[];

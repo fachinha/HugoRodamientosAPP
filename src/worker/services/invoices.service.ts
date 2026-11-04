@@ -312,6 +312,10 @@ export class InvoicesService {
     let createdCount = 0;
     let totalUnitsAdded = 0;
 
+    // Mapas para manejar ítems duplicados en una misma factura (ej: dos líneas para la misma cruceta o retén)
+    const skuToProductIdMap = new Map<string, number>();
+    const runningStockMap = new Map<number, number>();
+
     // 2. Procesar ítems mediante lote de transacciones
     const batchStmts: any[] = [];
 
@@ -324,27 +328,49 @@ export class InvoicesService {
           throw Errors.badRequest(`Datos incompletos para el nuevo producto con código "${item.supplierCode}".`);
         }
 
-        // Crear producto nuevo con stock inicial en 0
-        const prodInsert = await this.ctx.db
-          .prepare(
-            `INSERT INTO products (
-              sku, name, brand, category_id, unit, price_cents, cost_cents, stock, min_stock, active, created_at, updated_at
-            ) VALUES (?, ?, ?, NULL, 'unidad', ?, ?, 0, ?, 1, ?, ?)`,
-          )
-          .bind(
-            p.sku.trim(),
-            p.name.trim(),
-            p.brand?.trim() || null,
-            p.priceCents,
-            item.netUnitCostCents,
-            p.minStock ?? null,
-            now,
-            now,
-          )
-          .run();
+        const cleanSku = p.sku.trim();
+        const skuKey = cleanSku.toLowerCase();
 
-        productId = prodInsert.meta.last_row_id;
-        createdCount++;
+        // 1. ¿Ya se creó este SKU en una línea anterior de esta misma factura?
+        if (skuToProductIdMap.has(skuKey)) {
+          productId = skuToProductIdMap.get(skuKey)!;
+          updatedCount++;
+        } else {
+          // 2. ¿Existe ya en la base de datos con este SKU?
+          const existingProd = await this.ctx.db
+            .prepare('SELECT id, stock, price_cents, cost_cents FROM products WHERE sku = ? COLLATE NOCASE LIMIT 1')
+            .bind(cleanSku)
+            .first<{ id: number; stock: number; price_cents: number; cost_cents: number | null }>();
+
+          if (existingProd) {
+            productId = existingProd.id;
+            skuToProductIdMap.set(skuKey, productId);
+            updatedCount++;
+          } else {
+            // 3. No existe: crear producto nuevo con stock inicial en 0
+            const prodInsert = await this.ctx.db
+              .prepare(
+                `INSERT INTO products (
+                  sku, name, brand, category_id, unit, price_cents, cost_cents, stock, min_stock, active, created_at, updated_at
+                ) VALUES (?, ?, ?, NULL, 'unidad', ?, ?, 0, ?, 1, ?, ?)`,
+              )
+              .bind(
+                cleanSku,
+                p.name.trim(),
+                p.brand?.trim() || null,
+                p.priceCents,
+                item.netUnitCostCents,
+                p.minStock ?? null,
+                now,
+                now,
+              )
+              .run();
+
+            productId = prodInsert.meta.last_row_id;
+            skuToProductIdMap.set(skuKey, productId);
+            createdCount++;
+          }
+        }
       } else if (item.action === 'update_stock') {
         if (!productId) {
           throw Errors.badRequest(`Falta el identificador de producto para "${item.supplierCode}".`);
@@ -354,7 +380,7 @@ export class InvoicesService {
 
       if (!productId) continue;
 
-      // Obtener stock actual antes de mutar
+      // Obtener stock actual antes de mutar (tomando en cuenta mutaciones previas en este mismo lote)
       const current = await this.ctx.db
         .prepare('SELECT stock, cost_cents, price_cents FROM products WHERE id = ?')
         .bind(productId)
@@ -364,8 +390,9 @@ export class InvoicesService {
         throw Errors.notFound(`El producto id ${productId}`);
       }
 
-      const stockBefore = current.stock;
+      const stockBefore = runningStockMap.get(productId) ?? current.stock;
       const stockAfter = stockBefore + item.quantity;
+      runningStockMap.set(productId, stockAfter);
       totalUnitsAdded += item.quantity;
 
       const reason = `Compra Factura ${invoiceNumber} (${supplierName})`;
@@ -443,7 +470,13 @@ export class InvoicesService {
     );
 
     if (batchStmts.length > 0) {
-      await this.ctx.db.batch(batchStmts);
+      try {
+        await this.ctx.db.batch(batchStmts);
+      } catch (err: any) {
+        // En caso de error en el lote, limpiamos la cabecera huérfana
+        await this.ctx.db.prepare('DELETE FROM supplier_invoices WHERE id = ?').bind(invoiceId).run();
+        throw Errors.internal(`Error al confirmar el lote en la base de datos: ${err.message}`);
+      }
     }
 
     return {

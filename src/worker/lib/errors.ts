@@ -22,7 +22,9 @@ export const Errors = {
     new AppError(400, 'VALIDATION_ERROR', msg, details),
   conflict: (code: string, msg: string, details?: unknown) => new AppError(409, code, msg, details),
   badRequest: (msg: string, code = 'BAD_REQUEST') => new AppError(400, code, msg),
+  internal: (msg = 'Error interno en el servidor.') => new AppError(500, 'INTERNAL_ERROR', msg),
 };
+
 
 export interface FieldIssue {
   path: string;

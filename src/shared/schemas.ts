@@ -355,7 +355,7 @@ export const invoiceConfirmItemSchema = z.object({
   supplierCode: z.string().trim(),
   quantity: z.number().int().min(1),
   netUnitCostCents: z.number().int().min(0),
-  productId: z.number().int().positive().optional(),
+  productId: z.number().int().positive().nullish(),
   newProduct: z
     .object({
       sku: z.string().trim().min(1).max(64),
@@ -366,9 +366,9 @@ export const invoiceConfirmItemSchema = z.object({
       costCents: z.number().int().min(0),
       minStock: z.number().int().min(0).nullish(),
     })
-    .optional(),
+    .nullish(),
   updatePrice: z.boolean().default(false),
-  newPriceCents: z.number().int().min(0).optional(),
+  newPriceCents: z.number().int().min(0).nullish(),
   saveAlias: z.boolean().default(true),
 });
 

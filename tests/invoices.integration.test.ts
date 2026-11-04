@@ -411,4 +411,91 @@ describe('Supplier Invoices & AI Intake Integration Tests', () => {
     expect(['alias', 'exact_sku']).toContain(parseData.items[0].matchType);
     expect(parseData.items[0].currentStock).toBe(4);
   });
+
+  it('handles duplicate SKU lines in the same invoice seamlessly without UNIQUE constraint failure', async () => {
+    const idempotencyKey = `inv_test_dup_${Date.now()}`;
+
+    const confirmPayload = {
+      idempotencyKey,
+      supplierName: 'DISTRIBUIDORA REPETIDOS',
+      supplierCuit: '30-99887766-5',
+      invoiceNumber: '0001-00099999',
+      invoiceDate: '2026-11-04',
+      subtotalCents: 500000,
+      taxCents: 105000,
+      totalCents: 605000,
+      items: [
+        {
+          supplierCode: 'CR1163',
+          action: 'create_and_stock',
+          quantity: 2,
+          netUnitCostCents: 61285,
+          updatePrice: true,
+          newPriceCents: 120000,
+          saveAlias: true,
+          newProduct: {
+            sku: 'CR1163',
+            name: 'Cruceta ETM CR1163',
+            brand: 'ETM',
+            priceCents: 120000,
+            costCents: 61285,
+          },
+        },
+        {
+          supplierCode: 'CR1163',
+          action: 'create_and_stock', // Segunda línea en la misma factura con el mismo código nuevo
+          quantity: 3,
+          netUnitCostCents: 61285,
+          updatePrice: false,
+          saveAlias: true,
+          newProduct: {
+            sku: 'CR1163',
+            name: 'Cruceta ETM CR1163',
+            brand: 'ETM',
+            priceCents: 120000,
+            costCents: 61285,
+          },
+        },
+      ],
+    };
+
+    const confirmReq = new Request(`${baseUrl}/api/invoices/confirm`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: adminCookie,
+      },
+      body: JSON.stringify(confirmPayload),
+    });
+
+    const confirmRes = await worker.fetch(confirmReq, env);
+    expect(confirmRes.status).toBe(201);
+    const data = (await confirmRes.json()) as any;
+    expect(data.success).toBe(true);
+    expect(data.totalUnitsAdded).toBe(5); // 2 + 3
+    expect(data.createdCount).toBe(1);    // Se creó 1 producto
+    expect(data.updatedCount).toBe(1);    // La segunda línea actualizó el producto creado
+
+    // Verificar en la DB que el stock total es 5
+    const prod = await env.DB.prepare('SELECT stock FROM products WHERE sku = ?')
+      .bind('CR1163')
+      .first<{ stock: number }>();
+    expect(prod?.stock).toBe(5);
+
+    // Verificar que los movimientos de stock tienen stock_before y stock_after continuos
+    const movs = await env.DB.prepare(
+      `SELECT stock_before, stock_after, quantity FROM stock_movements WHERE ref_id = ? ORDER BY id ASC`,
+    )
+      .bind(data.invoiceId)
+      .all<{ stock_before: number; stock_after: number; quantity: number }>();
+
+    expect(movs.results.length).toBe(2);
+    // Primer movimiento: 0 -> 2 (+2)
+    expect(movs.results[0].stock_before).toBe(0);
+    expect(movs.results[0].stock_after).toBe(2);
+    // Segundo movimiento: 2 -> 5 (+3)
+    expect(movs.results[1].stock_before).toBe(2);
+    expect(movs.results[1].stock_after).toBe(5);
+  });
 });
+
