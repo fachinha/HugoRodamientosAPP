@@ -398,7 +398,7 @@ export class InvoicesService {
       const reason = `Compra Factura ${invoiceNumber} (${supplierName})`;
 
       // Sentencia de actualización de producto (stock y opcionalmente precio y costo)
-      if (item.updatePrice && item.newPriceCents !== undefined && item.newPriceCents > 0) {
+      if (item.updatePrice && item.newPriceCents != null && item.newPriceCents > 0) {
         batchStmts.push(
           this.ctx.db
             .prepare(
