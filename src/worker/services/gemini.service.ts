@@ -1,17 +1,23 @@
 import { Errors } from '../lib/errors';
 import type { InvoiceParsedHeader } from '../../shared/schemas';
 
-const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
+const CANDIDATE_MODELS = [
+  'gemini-3.5-flash',
+  'gemini-3.6-flash',
+  'gemini-3.8-flash',
+  'gemini-3.7-flash',
+];
 
 export class GeminiService {
-  private model: string;
+  private customModel?: string;
 
   constructor(private apiKey?: string, model?: string) {
-    this.model = model?.trim() || DEFAULT_GEMINI_MODEL;
+    this.customModel = model?.trim() || undefined;
   }
 
   /**
    * Envía un archivo PDF a la API multimodal de Gemini Flash y extrae la factura estructurada en JSON.
+   * Cuenta con fallback automático en cascada si un modelo reporta alta demanda (503) o saturación (429).
    */
   async extractInvoiceFromPdf(pdfBytes: Uint8Array | ArrayBuffer): Promise<InvoiceParsedHeader> {
     if (!this.apiKey || this.apiKey.trim() === '' || this.apiKey === 'tu-gemini-api-key-aqui') {
@@ -84,56 +90,76 @@ Reglas críticas de cálculo financiero y moneda:
       },
     };
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.model)}:generateContent`;
-    let response: Response;
-    try {
-      response = await fetch(`${endpoint}?key=${encodeURIComponent(this.apiKey)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-    } catch (err: any) {
-      throw Errors.badRequest(`Error de red al conectar con Google Gemini API: ${err.message}`);
-    }
+    const modelsToTry = this.customModel
+      ? [this.customModel, ...CANDIDATE_MODELS.filter((m) => m !== this.customModel)]
+      : CANDIDATE_MODELS;
 
-    if (!response.ok) {
-      const errText = await response.text();
-      let errMsg = `Gemini API respondió con código ${response.status}`;
+    let lastError = 'No se pudo conectar con los modelos de Gemini';
+
+    for (const currentModel of modelsToTry) {
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(currentModel)}:generateContent`;
+      let response: Response;
       try {
-        const parsedErr = JSON.parse(errText);
-        if (parsedErr?.error?.message) {
-          errMsg = `Error de Gemini: ${parsedErr.error.message}`;
-        }
-      } catch {
-        // mantener errMsg
+        response = await fetch(`${endpoint}?key=${encodeURIComponent(this.apiKey)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      } catch (err: any) {
+        lastError = `Error de red al conectar con Google Gemini (${currentModel}): ${err.message}`;
+        continue;
       }
-      throw Errors.badRequest(errMsg);
+
+      if (!response.ok) {
+        const errText = await response.text();
+        let errMsg = `Gemini API (${currentModel}) respondió con código ${response.status}`;
+        try {
+          const parsedErr = JSON.parse(errText);
+          if (parsedErr?.error?.message) {
+            errMsg = `Error de Gemini (${currentModel}): ${parsedErr.error.message}`;
+          }
+        } catch {
+          // mantener errMsg
+        }
+
+        // Si el modelo está congestionado (503), rate-limited (429) o no disponible (404), probamos automáticamente el siguiente modelo
+        if (response.status === 503 || response.status === 429 || response.status === 404) {
+          lastError = errMsg;
+          continue;
+        }
+
+        throw Errors.badRequest(errMsg);
+      }
+
+      const data: any = await response.json();
+      const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!candidateText) {
+        lastError = `La IA (${currentModel}) no devolvió contenido para la factura procesada.`;
+        continue;
+      }
+
+      try {
+        const parsed = JSON.parse(candidateText) as InvoiceParsedHeader;
+        // Normalizaciones básicas defensivas
+        parsed.invoiceType = parsed.invoiceType || 'A';
+        parsed.subtotalNetCents = parsed.subtotalNetCents || 0;
+        parsed.taxCents = parsed.taxCents || 0;
+        parsed.totalCents = parsed.totalCents || 0;
+        parsed.items = (parsed.items || []).map((it) => ({
+          ...it,
+          quantity: Math.max(1, Math.round(it.quantity || 1)),
+          netUnitCostCents: Math.max(0, Math.round(it.netUnitCostCents || 0)),
+          listPriceCents: Math.max(0, Math.round(it.listPriceCents || it.netUnitCostCents || 0)),
+          totalNetCents: Math.round(it.totalNetCents || it.netUnitCostCents * it.quantity),
+          lineType: it.lineType === 'charge' ? 'charge' : 'product',
+        }));
+        return parsed;
+      } catch (e: any) {
+        lastError = `Error al parsear el resultado JSON de la factura con ${currentModel}: ${e.message}`;
+        continue;
+      }
     }
 
-    const data: any = await response.json();
-    const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!candidateText) {
-      throw Errors.badRequest('La IA no devolvió contenido para la factura procesada.');
-    }
-
-    try {
-      const parsed = JSON.parse(candidateText) as InvoiceParsedHeader;
-      // Normalizaciones básicas defensivas
-      parsed.invoiceType = parsed.invoiceType || 'A';
-      parsed.subtotalNetCents = parsed.subtotalNetCents || 0;
-      parsed.taxCents = parsed.taxCents || 0;
-      parsed.totalCents = parsed.totalCents || 0;
-      parsed.items = (parsed.items || []).map((it) => ({
-        ...it,
-        quantity: Math.max(1, Math.round(it.quantity || 1)),
-        netUnitCostCents: Math.max(0, Math.round(it.netUnitCostCents || 0)),
-        listPriceCents: Math.max(0, Math.round(it.listPriceCents || it.netUnitCostCents || 0)),
-        totalNetCents: Math.round(it.totalNetCents || it.netUnitCostCents * it.quantity),
-        lineType: it.lineType === 'charge' ? 'charge' : 'product',
-      }));
-      return parsed;
-    } catch (e: any) {
-      throw Errors.badRequest(`Error al parsear el resultado JSON de la factura: ${e.message}`);
-    }
+    throw Errors.badRequest(lastError);
   }
 }
