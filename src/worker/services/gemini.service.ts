@@ -28,16 +28,20 @@ export class GeminiService {
       );
     }
 
+    // Hacemos una copia independiente para evitar que pdfjs-dist transfiera o desmonte (detach) el buffer
+    const bytesCopy = pdfBytes instanceof Uint8Array
+      ? new Uint8Array(pdfBytes)
+      : new Uint8Array(pdfBytes.slice(0));
+
     // 1. Intentar extracción de texto directo para evitar saturación de clusters visuales
     let extractedText = '';
     try {
-      const { text } = await extractText(new Uint8Array(pdfBytes));
+      const bufferForUnpdf = bytesCopy.buffer.slice(0);
+      const { text } = await extractText(new Uint8Array(bufferForUnpdf));
       extractedText = (Array.isArray(text) ? text.join('\n') : text || '').trim();
     } catch {
       extractedText = '';
     }
-
-    const base64Data = Buffer.from(pdfBytes).toString('base64');
 
     const promptInstructions = `Sos un sistema experto en auditoría contable y compras de repuestos, retenes y rodamientos para el comercio 'Rodamientos Hugo' (San Carlos de Bariloche, Argentina).
 Analizá exhaustivamente este documento de factura de compra comercial (comprobante emitido por distribuidores como SKF, Movimiento Mecánico, Alfa Rodamientos, ICEPAR, Cedisa, etc.) y extraé de forma estricta todos los datos del encabezado y cada uno de los ítems facturados.
@@ -50,21 +54,25 @@ Reglas críticas de cálculo financiero y moneda:
 5. Clasificá "lineType" como "product" para rulemanes, retenes, correas, crucetas y piezas mecánicas; o "charge" para conceptos no inventariables (flete, transporte, recargos o seguros).`;
 
     // Si pudimos extraer el texto digital (vector PDF), enviamos texto que consume pocos tokens y evita 503
-    const parts: any[] = extractedText.length > 50
-      ? [
-          {
-            text: `${promptInstructions}\n\nCONTENIDO TEXTUAL DE LA FACTURA:\n${extractedText}`,
+    let parts: any[];
+    if (extractedText.length > 50) {
+      parts = [
+        {
+          text: `${promptInstructions}\n\nCONTENIDO TEXTUAL DE LA FACTURA:\n${extractedText}`,
+        },
+      ];
+    } else {
+      const base64Data = Buffer.from(bytesCopy).toString('base64');
+      parts = [
+        { text: promptInstructions },
+        {
+          inlineData: {
+            mimeType: 'application/pdf',
+            data: base64Data,
           },
-        ]
-      : [
-          { text: promptInstructions },
-          {
-            inlineData: {
-              mimeType: 'application/pdf',
-              data: base64Data,
-            },
-          },
-        ];
+        },
+      ];
+    }
 
     const payload = {
       contents: [
