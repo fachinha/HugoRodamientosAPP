@@ -26,11 +26,13 @@ app.onError((err, c) => {
 
   // Error inesperado
   console.error('[UNHANDLED_ERROR]', err);
+  const isDev = c.env?.APP_ENV !== 'production';
   return c.json(
     {
       error: {
         code: 'INTERNAL_ERROR',
-        message: 'Ocurrió un error inesperado en el servidor. Por favor, reintentá.',
+        message: isDev && err instanceof Error ? `${err.name}: ${err.message}` : 'Ocurrió un error inesperado en el servidor. Por favor, reintentá.',
+        stack: isDev && err instanceof Error ? err.stack : undefined,
       },
     },
     500,
