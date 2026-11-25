@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   // Worker único: sirve la SPA (static assets) y la API (/api/*) desde el mismo origen.
-  "name": "rodamientos-hugo",
+  "name": "hugorodamientosapp",
   "main": "src/worker/index.ts",
   "compatibility_date": "2026-10-20",
   "assets": {
@@ -10,15 +10,16 @@
   },
   "observability": { "enabled": true },
   "vars": {
-    "APP_ENV": "local",
-    "SESSION_TTL_HOURS": "12"
+    "APP_ENV": "production",
+    "SESSION_TTL_HOURS": "12",
+    "GEMINI_MODEL": "gemini-2.5-flash-lite"
   },
-  // Entorno local (Miniflare). El database_id local no apunta a ninguna base remota.
+  // Base principal conectada tanto a Cloudflare Auto-Deploy como a desarrollo local (--local usa .wrangler/state)
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "rodamientos-hugo-local",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_name": "rodamientos-hugo-prod",
+      "database_id": "ac7c8cea-16c7-496e-b8e1-f4714e28b57a",
       "migrations_dir": "migrations"
     }
   ],
@@ -36,10 +37,14 @@
         }
       ]
     },
-    // Producción: nunca se siembran datos de demostración.
+    // Entorno production explícito (compatible también con --env production)
     "production": {
-      "name": "rodamientos-hugo",
-      "vars": { "APP_ENV": "production", "SESSION_TTL_HOURS": "12" },
+      "name": "hugorodamientosapp",
+      "vars": {
+        "APP_ENV": "production",
+        "SESSION_TTL_HOURS": "12",
+        "GEMINI_MODEL": "gemini-2.5-flash-lite"
+      },
       "d1_databases": [
         {
           "binding": "DB",
