@@ -1,10 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { CopilotProvider } from './context/CopilotContext';
 import { Layout } from './components/Layout';
 import { DashboardPage } from './pages/DashboardPage';
 import { PosPage } from './pages/PosPage';
+import { CurrentAccountsPage } from './pages/CurrentAccountsPage';
+import { FinanceAndPadronPage } from './pages/FinanceAndPadronPage';
+import { QuotesPage } from './pages/QuotesPage';
+import { CrmPage } from './pages/CrmPage';
 import { ProductsPage } from './pages/ProductsPage';
+import { ReplenishmentPage } from './pages/ReplenishmentPage';
+import { SupplierCatalogsPage } from './pages/SupplierCatalogsPage';
 import { InventoryPage } from './pages/InventoryPage';
 import { AlertsPage } from './pages/AlertsPage';
 import { MovementsPage } from './pages/MovementsPage';
@@ -65,7 +72,14 @@ export const AppContent: React.FC = () => {
       >
         <Route index element={<DashboardPage />} />
         <Route path="pos" element={<PosPage />} />
+        <Route path="current-accounts" element={<CurrentAccountsPage />} />
+        <Route path="clientes" element={<CurrentAccountsPage />} />
+        <Route path="finance" element={<FinanceAndPadronPage />} />
+        <Route path="quotes" element={<QuotesPage />} />
+        <Route path="crm" element={<CrmPage />} />
         <Route path="products" element={<ProductsPage />} />
+        <Route path="replenishment" element={<ReplenishmentPage />} />
+        <Route path="catalogs" element={<SupplierCatalogsPage />} />
         <Route path="inventory" element={<InventoryPage />} />
         <Route path="alerts" element={<AlertsPage />} />
         <Route path="movements" element={<MovementsPage />} />
@@ -81,7 +95,9 @@ export const App: React.FC = () => {
   return (
     <AuthProvider>
       <BrowserRouter>
-        <AppContent />
+        <CopilotProvider>
+          <AppContent />
+        </CopilotProvider>
       </BrowserRouter>
     </AuthProvider>
   );

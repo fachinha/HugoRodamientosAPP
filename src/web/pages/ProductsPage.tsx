@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router';
 import {
   Package,
   Plus,
@@ -13,6 +14,11 @@ import {
   AlertTriangle,
   Loader2,
   Tag,
+  MapPin,
+  Ruler,
+  Truck,
+  Layers,
+  Sparkles,
 } from 'lucide-react';
 import { apiFetch, ApiClientError } from '../api/client';
 import { formatARS, centsToInput, parseMoneyToCents } from '../../shared/money';
@@ -23,6 +29,7 @@ import type { ProductListItem } from '../../worker/services/products.service';
 export const ProductsPage: React.FC = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [products, setProducts] = useState<ProductListItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -30,9 +37,13 @@ export const ProductsPage: React.FC = () => {
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
 
-  // Filtros
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  // Filtros (inicializados desde URL si vienen desde Auditoría de Datos Faltantes)
+  const [search, setSearch] = useState(() => searchParams.get('q') || '');
+  const [shelfFilter, setShelfFilter] = useState('');
+  const [supplierFilter, setSupplierFilter] = useState<string>(() => searchParams.get('supplier') || '');
+  const [suppliersList, setSuppliersList] = useState<string[]>([]);
+  const [statusFilter, setStatusFilter] = useState<string>(() => searchParams.get('status') || 'all');
+  const [missingFilter, setMissingFilter] = useState<string>(() => searchParams.get('missing') || 'all');
   const [activeFilter, setActiveFilter] = useState<string>('1');
 
   // Modales
@@ -43,6 +54,16 @@ export const ProductsPage: React.FC = () => {
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  useEffect(() => {
+    apiFetch<any>('/suppliers')
+      .then((res) => {
+        const list = Array.isArray(res) ? res : res?.items || [];
+        const names = list.map((s: any) => s.name).filter(Boolean);
+        setSuppliersList(names);
+      })
+      .catch(() => {});
+  }, []);
+
   const fetchProducts = async (p = page) => {
     setLoading(true);
     setErrorMsg(null);
@@ -51,9 +72,12 @@ export const ProductsPage: React.FC = () => {
         page: String(p),
         pageSize: '25',
         status: statusFilter,
+        missing: missingFilter,
         active: activeFilter,
       });
       if (search.trim()) qParams.set('q', search.trim());
+      if (shelfFilter.trim()) qParams.set('shelfNumber', shelfFilter.trim());
+      if (supplierFilter.trim()) qParams.set('supplierName', supplierFilter.trim());
 
       const res = await apiFetch<any>(`/products?${qParams.toString()}`);
       setProducts(res.items);
@@ -69,7 +93,7 @@ export const ProductsPage: React.FC = () => {
 
   useEffect(() => {
     fetchProducts(1);
-  }, [statusFilter, activeFilter]);
+  }, [statusFilter, missingFilter, activeFilter, supplierFilter]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -137,19 +161,74 @@ export const ProductsPage: React.FC = () => {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar por código de barras, SKU, nombre o marca..."
+              placeholder="Buscar en cualquier orden (sin importar espacios ni comas): ej. 'Chevrolet corsa 05012', 'bomba agua dolz vmg skf', 'chivilcoy alfa'..."
               className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-orange-500"
+            />
+          </div>
+          <div className="w-36 relative">
+            <MapPin className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={shelfFilter}
+              onChange={(e) => setShelfFilter(e.target.value)}
+              placeholder="Estantería (E01)"
+              className="w-full pl-8 pr-2 py-2 border border-slate-300 rounded-lg text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-orange-500 font-mono"
             />
           </div>
           <button
             type="submit"
-            className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-lg cursor-pointer"
+            className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-lg cursor-pointer active:scale-95 transition-all"
           >
             Buscar
           </button>
         </form>
 
-        <div className="flex items-center gap-2 w-full md:w-auto">
+        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+          {/* Filtro por proveedor */}
+          <select
+            value={supplierFilter}
+            onChange={(e) => setSupplierFilter(e.target.value)}
+            className={`px-3 py-2 border rounded-lg text-xs font-medium max-w-[180px] ${
+              supplierFilter
+                ? 'border-orange-500 bg-orange-50 text-orange-900 font-bold'
+                : 'border-slate-300 bg-white text-slate-700'
+            }`}
+          >
+            <option value="">Todos los proveedores</option>
+            {suppliersList.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+
+          {/* Filtro por datos faltantes */}
+          <select
+            value={missingFilter}
+            onChange={(e) => {
+              const val = e.target.value;
+              setMissingFilter(val);
+              const next = new URLSearchParams(searchParams);
+              if (val === 'all') next.delete('missing');
+              else next.set('missing', val);
+              setSearchParams(next, { replace: true });
+            }}
+            className={`px-3 py-2 border rounded-lg text-xs font-medium ${
+              missingFilter !== 'all'
+                ? 'border-orange-500 bg-orange-50 text-orange-900 font-bold'
+                : 'border-slate-300 bg-white text-slate-700'
+            }`}
+          >
+            <option value="all">Ficha: Todos</option>
+            <option value="price">Falta Precio ($0)</option>
+            <option value="cost">Falta Costo</option>
+            <option value="supplier">Falta Proveedor</option>
+            <option value="location">Falta Estantería</option>
+            <option value="brand">Falta Marca</option>
+            <option value="dimensions">Falta Medidas</option>
+            <option value="min_stock">Falta Mínimo Stock</option>
+          </select>
+
           {/* Filtro por estado de stock */}
           <select
             value={statusFilter}
@@ -195,9 +274,11 @@ export const ProductsPage: React.FC = () => {
                 <tr>
                   <th className="px-4 py-3">SKU / Código</th>
                   <th className="px-4 py-3">Nombre comercial</th>
-                  <th className="px-4 py-3">Marca / Categoría</th>
+                  <th className="px-4 py-3">Ubicación / Medidas</th>
+                  <th className="px-4 py-3">Marca / Proveedor</th>
+                  <th className="px-4 py-3">Fechas Compra / Venta</th>
                   <th className="px-4 py-3 text-right">Precio venta</th>
-                  {isAdmin && <th className="px-4 py-3 text-right">Costo</th>}
+                  {isAdmin && <th className="px-4 py-3 text-right">Costo (+Flete)</th>}
                   <th className="px-4 py-3 text-center">Stock actual</th>
                   <th className="px-4 py-3 text-center">Mínimo</th>
                   <th className="px-4 py-3 text-center">Estado</th>
@@ -218,20 +299,75 @@ export const ProductsPage: React.FC = () => {
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3 max-w-xs">
-                        <p className="font-medium text-slate-900 truncate">{p.name}</p>
-                        {p.description && <p className="text-[10px] text-slate-400 truncate">{p.description}</p>}
+                      <td className="px-4 py-3 max-w-sm">
+                        <p className="font-semibold text-slate-900 truncate" title={p.name}>{p.name}</p>
+                        {p.description && p.description !== p.name && (
+                          <p className="text-[11px] text-slate-500 line-clamp-2 leading-snug mt-0.5" title={p.description}>
+                            {p.description}
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {p.location ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded font-mono font-bold text-[11px] bg-amber-50 text-amber-800 border border-amber-200">
+                            <MapPin className="h-3 w-3 text-amber-600" />
+                            {p.location}
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-slate-300 italic">Sin estantería</span>
+                        )}
+                        {p.dimensions && (
+                          <span className="flex items-center gap-1 text-[10px] text-slate-600 font-mono mt-0.5 font-medium">
+                            <Ruler className="h-2.5 w-2.5 text-slate-400" />
+                            {p.dimensions}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-slate-500">
-                        {p.brand && <span className="font-semibold text-slate-700">{p.brand}</span>}
+                        {p.brand && <span className="font-semibold text-slate-700 block">{p.brand}</span>}
                         {p.categoryName && <span className="text-[10px] block text-slate-400">{p.categoryName}</span>}
+                        {p.supplierName && (
+                          <span className="text-[10px] block text-orange-600 font-medium truncate max-w-[130px]" title={`Proveedor: ${p.supplierName}`}>
+                            {p.supplierName} {p.supplierCode ? `(${p.supplierCode})` : ''}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-[11px] text-slate-600">
+                        <div className="space-y-0.5">
+                          <span className="block" title="Fecha de última entrada / compra">
+                            <strong className="text-slate-500 font-semibold">Compra:</strong>{' '}
+                            {p.lastPurchaseAt ? new Date(p.lastPurchaseAt).toLocaleDateString('es-AR') : <span className="text-slate-300 italic">Sin reg.</span>}
+                          </span>
+                          <span className="block" title="Fecha de última salida / venta">
+                            <strong className="text-slate-500 font-semibold">Venta:</strong>{' '}
+                            {p.lastSaleAt ? new Date(p.lastSaleAt).toLocaleDateString('es-AR') : <span className="text-slate-300 italic">Sin reg.</span>}
+                          </span>
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-right font-bold text-slate-900 whitespace-nowrap">
-                        {formatARS(p.priceCents)}
+                        {p.priceCents > 0 ? (
+                          formatARS(p.priceCents)
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-100 text-rose-800 text-[10px] font-bold">
+                            <AlertTriangle className="h-3 w-3" />
+                            Sin precio ($0)
+                          </span>
+                        )}
                       </td>
                       {isAdmin && (
                         <td className="px-4 py-3 text-right text-slate-500 whitespace-nowrap">
-                          {p.costCents !== null ? formatARS(p.costCents) : '—'}
+                          {p.costCents !== null ? (
+                            <div>
+                              <span className="block font-medium text-slate-700">{formatARS(p.costCents)}</span>
+                              {(p.freightPct || 0) > 0 && (
+                                <span className="text-[10px] text-amber-700 font-semibold block">
+                                  +{p.freightPct}% flete = {formatARS(Math.round(p.costCents * (1 + p.freightPct / 100)))}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            '—'
+                          )}
                         </td>
                       )}
                       <td className="px-4 py-3 text-center whitespace-nowrap">
@@ -309,14 +445,25 @@ export const ProductsPage: React.FC = () => {
 
         {/* Paginación */}
         {totalPages > 1 && (
-          <div className="p-4 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
-            <span>Página {page} de {totalPages}</span>
-            <div className="flex gap-1">
+          <div className="p-4 border-t border-slate-200 bg-slate-50/60 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
+            <span className="font-medium">
+              Página <strong className="text-slate-900">{page.toLocaleString('es-AR')}</strong> de{' '}
+              <strong className="text-slate-900">{totalPages.toLocaleString('es-AR')}</strong> ({total.toLocaleString('es-AR')} artículos)
+            </span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                disabled={page <= 1}
+                onClick={() => fetchProducts(1)}
+                className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 hover:-translate-y-0.5 active:scale-96 transition-all disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
+              >
+                « Primera
+              </button>
               <button
                 type="button"
                 disabled={page <= 1}
                 onClick={() => fetchProducts(page - 1)}
-                className="px-3 py-1 border border-slate-300 rounded hover:bg-slate-50 disabled:opacity-40"
+                className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg font-medium hover:bg-slate-50 hover:-translate-y-0.5 active:scale-96 transition-all disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
               >
                 Anterior
               </button>
@@ -324,9 +471,17 @@ export const ProductsPage: React.FC = () => {
                 type="button"
                 disabled={page >= totalPages}
                 onClick={() => fetchProducts(page + 1)}
-                className="px-3 py-1 border border-slate-300 rounded hover:bg-slate-50 disabled:opacity-40"
+                className="px-3 py-1.5 bg-slate-800 text-white border border-slate-800 rounded-lg font-semibold hover:bg-slate-900 hover:-translate-y-0.5 active:scale-96 transition-all disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
               >
                 Siguiente
+              </button>
+              <button
+                type="button"
+                disabled={page >= totalPages}
+                onClick={() => fetchProducts(totalPages)}
+                className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 hover:-translate-y-0.5 active:scale-96 transition-all disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
+              >
+                Última »
               </button>
             </div>
           </div>
@@ -430,8 +585,63 @@ const ProductFormModal: React.FC<{
   const [targetStock, setTargetStock] = useState<number | ''>(product?.targetStock ?? '');
   const [barcodesText, setBarcodesText] = useState((product?.barcodes || []).join('\n'));
 
+  // Ubicación física
+  const [shelfNumber, setShelfNumber] = useState(product?.shelfNumber || '');
+  const [shelfLevel, setShelfLevel] = useState(product?.shelfLevel || '');
+  const [compartment, setCompartment] = useState(product?.compartment || '');
+
+  // Medidas técnicas
+  const [innerDiameterMm, setInnerDiameterMm] = useState<number | ''>(product?.innerDiameterMm ?? '');
+  const [outerDiameterMm, setOuterDiameterMm] = useState<number | ''>(product?.outerDiameterMm ?? '');
+  const [widthMm, setWidthMm] = useState<number | ''>(product?.widthMm ?? '');
+
+  // Proveedor, Flete y Fechas Compra/Venta
+  const [supplierName, setSupplierName] = useState(product?.supplierName || '');
+  const [supplierCode, setSupplierCode] = useState(product?.supplierCode || '');
+  const [freightPct, setFreightPct] = useState<number>(product?.freightPct ?? 0);
+  const [lastPurchaseAt, setLastPurchaseAt] = useState(
+    product?.lastPurchaseAt ? product.lastPurchaseAt.slice(0, 10) : '',
+  );
+  const [lastSaleAt, setLastSaleAt] = useState(
+    product?.lastSaleAt ? product.lastSaleAt.slice(0, 10) : '',
+  );
+
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGeneratingAiDesc, setIsGeneratingAiDesc] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const handleGenerateAiDescription = async () => {
+    setErrorMsg(null);
+    setIsGeneratingAiDesc(true);
+    try {
+      const dimsStr =
+        innerDiameterMm || outerDiameterMm || widthMm
+          ? `${innerDiameterMm || ''}x${outerDiameterMm || ''}x${widthMm || ''}`
+          : product?.dimensions || null;
+      const res = await apiFetch<{
+        description: string;
+        suggestedBrand: string | null;
+        suggestedCategory: string | null;
+      }>('/products/ai-describe', {
+        method: 'POST',
+        body: JSON.stringify({
+          sku,
+          name,
+          brand: brand || null,
+          dimensions: dimsStr,
+          supplierName: supplierName || null,
+          supplierCode: supplierCode || null,
+        }),
+      });
+      if (res.description) setDescription(res.description);
+      if (!brand.trim() && res.suggestedBrand) setBrand(res.suggestedBrand);
+      if (!categoryName.trim() && res.suggestedCategory) setCategoryName(res.suggestedCategory);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'No se pudo generar la descripción con IA.');
+    } finally {
+      setIsGeneratingAiDesc(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -461,6 +671,17 @@ const ProductFormModal: React.FC<{
       minStock: minStock === '' ? null : Number(minStock),
       targetStock: targetStock === '' ? null : Number(targetStock),
       barcodes,
+      shelfNumber: shelfNumber.trim() || null,
+      shelfLevel: shelfLevel.trim() || null,
+      compartment: compartment.trim() || null,
+      innerDiameterMm: innerDiameterMm === '' ? null : Number(innerDiameterMm),
+      outerDiameterMm: outerDiameterMm === '' ? null : Number(outerDiameterMm),
+      widthMm: widthMm === '' ? null : Number(widthMm),
+      supplierName: supplierName.trim() || null,
+      supplierCode: supplierCode.trim() || null,
+      freightPct: Number(freightPct) || 0,
+      lastPurchaseAt: lastPurchaseAt ? `${lastPurchaseAt}T12:00:00.000Z` : null,
+      lastSaleAt: lastSaleAt ? `${lastSaleAt}T12:00:00.000Z` : null,
     };
 
     if (!isEdit) {
@@ -544,6 +765,34 @@ const ProductFormModal: React.FC<{
             />
           </div>
 
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-slate-700">
+                Descripción técnica, vehículos compatibles y equivalencias
+              </label>
+              <button
+                type="button"
+                disabled={isGeneratingAiDesc || (!sku.trim() && !name.trim())}
+                onClick={handleGenerateAiDescription}
+                className="inline-flex items-center gap-1 px-2.5 py-1 bg-orange-50 hover:bg-orange-100 text-orange-800 border border-orange-200 rounded-lg text-[11px] font-semibold cursor-pointer active:scale-96 transition-all disabled:opacity-40"
+              >
+                {isGeneratingAiDesc ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3 w-3 text-orange-600" />
+                )}
+                <span>Completar con IA</span>
+              </button>
+            </div>
+            <textarea
+              rows={3}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Aplicación vehicular (ej. Chevrolet Corsa 1.4/1.6 8V), tipo de pieza y equivalencias (DOLZ O106, VMG BA193, SKF VKPC85206, CHIVILCOY CH0119)..."
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-700 leading-relaxed"
+            />
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Categoría</label>
@@ -567,7 +816,7 @@ const ProductFormModal: React.FC<{
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Precio de venta (ARS) *</label>
               <input
@@ -580,7 +829,7 @@ const ProductFormModal: React.FC<{
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Costo de compra (opcional)</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Costo de compra</label>
               <input
                 type="text"
                 value={costInput}
@@ -589,7 +838,29 @@ const ProductFormModal: React.FC<{
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-600"
               />
             </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Flete a Bariloche (%)</label>
+              <input
+                type="number"
+                step="0.5"
+                min="0"
+                max="200"
+                value={freightPct}
+                onChange={(e) => setFreightPct(parseFloat(e.target.value) || 0)}
+                placeholder="6.5"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-amber-900 bg-amber-50/40"
+              />
+            </div>
           </div>
+
+          {costInput.trim() && (parseMoneyToCents(costInput) || 0) > 0 && (
+            <div className="px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between text-xs text-amber-900">
+              <span>Costo puesto en Bariloche (Costo + {freightPct}% flete):</span>
+              <strong className="font-mono font-bold">
+                {formatARS(Math.round((parseMoneyToCents(costInput) || 0) * (1 + (Number(freightPct) || 0) / 100)))}
+              </strong>
+            </div>
+          )}
 
           {/* Gestión de existencias y umbrales */}
           <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
@@ -635,6 +906,153 @@ const ProductFormModal: React.FC<{
                   onChange={(e) => setTargetStock(e.target.value === '' ? '' : parseInt(e.target.value))}
                   placeholder="Ej: 20"
                   className="w-full px-2 py-1.5 border border-slate-300 rounded text-xs bg-white text-center"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Ubicación física en estantería */}
+          <div className="p-3 bg-amber-50/60 border border-amber-200 rounded-lg space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <MapPin className="h-3.5 w-3.5 text-amber-600" />
+                Ubicación en estantería
+              </span>
+              <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded bg-white text-amber-900 border border-amber-200 shadow-2xs">
+                {shelfNumber
+                  ? `${shelfNumber.toUpperCase().trim()}${shelfLevel ? `-${shelfLevel.toUpperCase().trim()}` : ''}${compartment ? `-${compartment.trim()}` : ''}`
+                  : 'Sin ubicación asignada'}
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">Estantería</label>
+                <input
+                  type="text"
+                  value={shelfNumber}
+                  onChange={(e) => setShelfNumber(e.target.value.toUpperCase())}
+                  placeholder="Ej: E01"
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded text-xs bg-white text-center font-mono font-bold"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">Nivel</label>
+                <input
+                  type="text"
+                  value={shelfLevel}
+                  onChange={(e) => setShelfLevel(e.target.value.toUpperCase())}
+                  placeholder="Ej: A"
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded text-xs bg-white text-center font-mono font-bold"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">Compartimento</label>
+                <input
+                  type="text"
+                  value={compartment}
+                  onChange={(e) => setCompartment(e.target.value)}
+                  placeholder="Ej: 1"
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded text-xs bg-white text-center font-mono font-bold"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Medidas Técnicas (Calibre / Rodamiento) */}
+          <div className="p-3 bg-blue-50/50 border border-blue-200 rounded-lg space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <Ruler className="h-3.5 w-3.5 text-blue-600" />
+                Medidas técnicas (Calibre en mm)
+              </span>
+              <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded bg-white text-blue-900 border border-blue-200 shadow-2xs">
+                {innerDiameterMm || outerDiameterMm || widthMm
+                  ? `${innerDiameterMm || '—'}x${outerDiameterMm || '—'}x${widthMm || '—'} mm`
+                  : 'Sin medidas'}
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">d (Interior mm)</label>
+                <input
+                  type="number"
+                  step="any"
+                  value={innerDiameterMm}
+                  onChange={(e) => setInnerDiameterMm(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                  placeholder="Ej: 25"
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded text-xs bg-white text-center font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">D (Exterior mm)</label>
+                <input
+                  type="number"
+                  step="any"
+                  value={outerDiameterMm}
+                  onChange={(e) => setOuterDiameterMm(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                  placeholder="Ej: 52"
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded text-xs bg-white text-center font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">B (Ancho / Espesor mm)</label>
+                <input
+                  type="number"
+                  step="any"
+                  value={widthMm}
+                  onChange={(e) => setWidthMm(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                  placeholder="Ej: 15"
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded text-xs bg-white text-center font-mono"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Proveedor de Origen y Fechas de Compra / Venta */}
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2.5">
+            <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+              <Truck className="h-3.5 w-3.5 text-slate-600" />
+              Proveedor de origen y fechas de compra / venta
+            </span>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">Nombre proveedor</label>
+                <input
+                  type="text"
+                  value={supplierName}
+                  onChange={(e) => setSupplierName(e.target.value)}
+                  placeholder="Ej: Alfa Rodamientos"
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded text-xs bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">Código en proveedor</label>
+                <input
+                  type="text"
+                  value={supplierCode}
+                  onChange={(e) => setSupplierCode(e.target.value)}
+                  placeholder="Ej: 6205-2RS-C3"
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded text-xs bg-white font-mono"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-200/70">
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">Fecha última compra</label>
+                <input
+                  type="date"
+                  value={lastPurchaseAt}
+                  onChange={(e) => setLastPurchaseAt(e.target.value)}
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded text-xs bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">Fecha última venta</label>
+                <input
+                  type="date"
+                  value={lastSaleAt}
+                  onChange={(e) => setLastSaleAt(e.target.value)}
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded text-xs bg-white"
                 />
               </div>
             </div>

@@ -21,16 +21,17 @@ import { apiFetch, ApiClientError } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { BarcodeScanner } from '../components/BarcodeScanner';
 import { formatDateTime } from '../../shared/time';
+import { JOB_ROLE_LABELS, type JobRole } from '../../shared/schemas';
 
 export const SettingsPage: React.FC = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
 
-  const [activeTab, setActiveTab] = useState<'business' | 'payment' | 'users' | 'import' | 'scanner'>('business');
+  const [activeTab, setActiveTab] = useState<'business' | 'payment' | 'users' | 'official_accounts' | 'import' | 'scanner'>('business');
 
   // Negocio
   const [businessName, setBusinessName] = useState('Rodamientos Hugo');
-  const [maxSellerDiscount, setMaxSellerDiscount] = useState<number>(0);
+  const [maxSellerDiscount, setMaxSellerDiscount] = useState<number>(5);
   const [replenishmentFactor, setReplenishmentFactor] = useState<number>(2);
   const [receiptFooter, setReceiptFooter] = useState('');
   const [savingSettings, setSavingSettings] = useState(false);
@@ -40,14 +41,25 @@ export const SettingsPage: React.FC = () => {
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
   const [newPmName, setNewPmName] = useState('');
 
-  // Usuarios
+  // Usuarios y Roles Detallados
   const [usersList, setUsersList] = useState<any[]>([]);
   const [userModalOpen, setUserModalOpen] = useState(false);
   const [newUsername, setNewUsername] = useState('');
   const [newDisplayName, setNewDisplayName] = useState('');
-  const [newRole, setNewRole] = useState<'seller' | 'admin'>('seller');
+  const [newJobRole, setNewJobRole] = useState<JobRole>('vendedor');
+  const [newSellerNumber, setNewSellerNumber] = useState('');
+  const [newMaxDiscountPct, setNewMaxDiscountPct] = useState<number>(5);
   const [newPassword, setNewPassword] = useState('');
   const [userError, setUserError] = useState<string | null>(null);
+
+  // Control de Cuentas Oficiales y Mails para Hugo
+  const [officialAccounts, setOfficialAccounts] = useState<any[]>([]);
+  const [accType, setAccType] = useState<'email' | 'whatsapp' | 'mercadolibre' | 'banco_payway' | 'proveedor_portal'>('email');
+  const [accIdentifier, setAccIdentifier] = useState('');
+  const [accUserName, setAccUserName] = useState('');
+  const [accRole, setAccRole] = useState<JobRole>('vendedor');
+  const [accScope, setAccScope] = useState('');
+  const [accRestrictions, setAccRestrictions] = useState('');
 
   // Importación
   const [importRows, setImportRows] = useState<any[]>([]);
@@ -73,9 +85,10 @@ export const SettingsPage: React.FC = () => {
     // Cargar medios de pago
     loadPaymentMethods();
 
-    // Cargar usuarios si es admin
+    // Cargar usuarios y cuentas oficiales si es admin
     if (isAdmin) {
       loadUsers();
+      loadOfficialAccounts();
     }
   }, [isAdmin]);
 
@@ -85,6 +98,44 @@ export const SettingsPage: React.FC = () => {
 
   const loadUsers = () => {
     apiFetch<any[]>('/users').then(setUsersList);
+  };
+
+  const loadOfficialAccounts = () => {
+    apiFetch<any[]>('/official-accounts').then(setOfficialAccounts).catch(() => {});
+  };
+
+  const handleCreateOfficialAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!accIdentifier.trim() || !accUserName.trim() || !accScope.trim()) return;
+    try {
+      await apiFetch('/official-accounts', {
+        method: 'POST',
+        body: JSON.stringify({
+          accountType: accType,
+          accountIdentifier: accIdentifier.trim(),
+          assignedUserName: accUserName.trim(),
+          assignedRole: accRole,
+          contactsScope: accScope.trim(),
+          restrictionsNotes: accRestrictions.trim() || null,
+        }),
+      });
+      setAccIdentifier('');
+      setAccUserName('');
+      setAccScope('');
+      setAccRestrictions('');
+      loadOfficialAccounts();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleDeleteOfficialAccount = async (id: number) => {
+    try {
+      await apiFetch(`/official-accounts/${id}`, { method: 'DELETE' });
+      loadOfficialAccounts();
+    } catch (err: any) {
+      alert(err.message);
+    }
   };
 
   const handleSaveSettings = async (e: React.FormEvent) => {
@@ -138,19 +189,24 @@ export const SettingsPage: React.FC = () => {
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setUserError(null);
+    const computedRole: 'admin' | 'seller' = newJobRole === 'vendedor' ? 'seller' : 'admin';
     try {
       await apiFetch('/users', {
         method: 'POST',
         body: JSON.stringify({
           username: newUsername.trim(),
           displayName: newDisplayName.trim(),
-          role: newRole,
+          role: computedRole,
+          jobRole: newJobRole,
+          sellerNumber: newSellerNumber.trim() || null,
+          maxDiscountPct: Number(newMaxDiscountPct),
           password: newPassword,
         }),
       });
       setUserModalOpen(false);
       setNewUsername('');
       setNewDisplayName('');
+      setNewSellerNumber('');
       setNewPassword('');
       loadUsers();
     } catch (err: any) {
@@ -305,6 +361,19 @@ export const SettingsPage: React.FC = () => {
             }`}
           >
             Usuarios y permisos
+          </button>
+        )}
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('official_accounts')}
+            className={`px-4 py-2 text-xs font-semibold border-b-2 cursor-pointer whitespace-nowrap ${
+              activeTab === 'official_accounts'
+                ? 'border-orange-600 text-orange-600'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            Cuentas Oficiales y Mails (Control Hugo)
           </button>
         )}
         {isAdmin && (
@@ -489,9 +558,11 @@ export const SettingsPage: React.FC = () => {
             <table className="w-full text-left text-xs text-slate-700">
               <thead className="bg-slate-50 text-slate-500 uppercase font-semibold border-b border-slate-200">
                 <tr>
+                  <th className="px-4 py-2.5">Legajo / N° Vend.</th>
                   <th className="px-4 py-2.5">Usuario</th>
                   <th className="px-4 py-2.5">Nombre visible</th>
-                  <th className="px-4 py-2.5">Rol</th>
+                  <th className="px-4 py-2.5">Rol en el Negocio</th>
+                  <th className="px-4 py-2.5 text-center">Tope Descuento</th>
                   <th className="px-4 py-2.5 text-center">Estado</th>
                   <th className="px-4 py-2.5">Fecha de alta</th>
                 </tr>
@@ -499,12 +570,18 @@ export const SettingsPage: React.FC = () => {
               <tbody className="divide-y divide-slate-100">
                 {usersList.map((u) => (
                   <tr key={u.id} className="hover:bg-slate-50">
+                    <td className="px-4 py-2.5 font-mono font-bold text-orange-700">
+                      {u.sellerNumber || `V-0${u.id}`}
+                    </td>
                     <td className="px-4 py-2.5 font-mono font-bold text-slate-900">{u.username}</td>
                     <td className="px-4 py-2.5 font-medium">{u.displayName}</td>
                     <td className="px-4 py-2.5">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">
-                        {u.role === 'admin' ? 'Administrador' : 'Vendedor'}
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-800">
+                        {JOB_ROLE_LABELS[(u.jobRole as JobRole) || 'vendedor'] || (u.role === 'admin' ? 'Supervisor General' : 'Vendedor')}
                       </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-center font-mono font-bold text-slate-800">
+                      {u.maxDiscountPct ?? (u.role === 'admin' ? 100 : 5)}%
                     </td>
                     <td className="px-4 py-2.5 text-center">
                       <span
@@ -526,21 +603,33 @@ export const SettingsPage: React.FC = () => {
           {userModalOpen && (
             <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
               <div className="bg-white rounded-xl shadow-xl border border-slate-200 max-w-md w-full p-5 space-y-4">
-                <h4 className="text-sm font-bold text-slate-900">Crear usuario de mostrador o administración</h4>
+                <h4 className="text-sm font-bold text-slate-900">Crear usuario con rol y permisos específicos</h4>
 
                 {userError && <div className="p-2.5 bg-rose-50 text-rose-700 rounded text-xs">{userError}</div>}
 
                 <form onSubmit={handleCreateUser} className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Nombre de usuario *</label>
-                    <input
-                      type="text"
-                      required
-                      value={newUsername}
-                      onChange={(e) => setNewUsername(e.target.value)}
-                      placeholder="Ej: lucas_mostrador"
-                      className="w-full px-3 py-2 border border-slate-300 rounded text-xs"
-                    />
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Nombre de usuario *</label>
+                      <input
+                        type="text"
+                        required
+                        value={newUsername}
+                        onChange={(e) => setNewUsername(e.target.value)}
+                        placeholder="Ej: lucas_mostrador"
+                        className="w-full px-3 py-2 border border-slate-300 rounded text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">N° Vendedor / Legajo</label>
+                      <input
+                        type="text"
+                        value={newSellerNumber}
+                        onChange={(e) => setNewSellerNumber(e.target.value)}
+                        placeholder="Ej: V-02"
+                        className="w-full px-3 py-2 border border-slate-300 rounded text-xs font-mono font-bold"
+                      />
+                    </div>
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">Nombre y apellido *</label>
@@ -554,15 +643,35 @@ export const SettingsPage: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Rol *</label>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Rol en el negocio *</label>
                     <select
-                      value={newRole}
-                      onChange={(e) => setNewRole(e.target.value as any)}
-                      className="w-full px-3 py-2 border border-slate-300 rounded text-xs"
+                      value={newJobRole}
+                      onChange={(e) => {
+                        const r = e.target.value as JobRole;
+                        setNewJobRole(r);
+                        setNewMaxDiscountPct(r === 'vendedor' ? 5 : 100);
+                      }}
+                      className="w-full px-3 py-2 border border-slate-300 rounded text-xs font-semibold"
                     >
-                      <option value="seller">Vendedor (Mostrador, ventas y consultas de stock)</option>
-                      <option value="admin">Administrador (Control total, ajustes, precios)</option>
+                      <option value="vendedor">Vendedor (Mostrador y Presupuestos · Tope 5% dto.)</option>
+                      <option value="encargado_salon">Encargado de Salón (Stock y Pedidos a Proveedores)</option>
+                      <option value="supervisor_ventas">Supervisor de Ventas (Autoriza descuentos &gt;5% y Caja)</option>
+                      <option value="administrativo">Administrativo (Facturas, Compras, Pagos e Impuestos)</option>
+                      <option value="supervisor_general">Supervisor General (Hugo · Control Total)</option>
                     </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Tope de descuento propio sin autorización (%)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={newMaxDiscountPct}
+                      onChange={(e) => setNewMaxDiscountPct(Number(e.target.value))}
+                      className="w-full px-3 py-2 border border-slate-300 rounded text-xs font-bold"
+                    />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -598,6 +707,173 @@ export const SettingsPage: React.FC = () => {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Tab: Control de Cuentas Oficiales y Mails para Hugo */}
+      {activeTab === 'official_accounts' && isAdmin && (
+        <div className="space-y-5">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-4">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">
+                Control de Mails y Cuentas Oficiales del Negocio (Auditoría para Hugo)
+              </h3>
+              <p className="text-xs text-slate-500">
+                Registro centralizado de qué empleado utiliza cada correo oficial, línea de WhatsApp o cuenta comercial, con qué clientes o proveedores se comunica y sus restricciones.
+              </p>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-700">
+                <thead className="bg-slate-50 text-slate-500 uppercase font-semibold border-b border-slate-200">
+                  <tr>
+                    <th className="px-4 py-2.5">Tipo / Cuenta Oficial</th>
+                    <th className="px-4 py-2.5">Persona que la usa</th>
+                    <th className="px-4 py-2.5">Con quiénes se comunica (Alcance)</th>
+                    <th className="px-4 py-2.5">Restricciones definidas por Hugo</th>
+                    <th className="px-4 py-2.5 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {officialAccounts.map((acc) => (
+                    <tr key={acc.id} className="hover:bg-slate-50">
+                      <td className="px-4 py-3">
+                        <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-900 text-white mb-1">
+                          {acc.accountType}
+                        </span>
+                        <p className="font-mono font-bold text-slate-900">{acc.accountIdentifier}</p>
+                      </td>
+                      <td className="px-4 py-3">
+                        <p className="font-semibold text-slate-900">{acc.assignedUserName}</p>
+                        <span className="text-[10px] text-slate-500">
+                          {JOB_ROLE_LABELS[(acc.assignedRole as JobRole) || 'vendedor'] || acc.assignedRole}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 max-w-xs text-slate-700">{acc.contactsScope}</td>
+                      <td className="px-4 py-3 max-w-xs">
+                        {acc.restrictionsNotes ? (
+                          <span className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200 px-2 py-1 rounded block">
+                            {acc.restrictionsNotes}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 italic">Sin restricciones adicionales</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteOfficialAccount(acc.id)}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
+                          title="Eliminar asignación"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <form onSubmit={handleCreateOfficialAccount} className="pt-4 border-t border-slate-200 space-y-3">
+              <h4 className="text-xs font-bold text-slate-800">
+                Registrar nueva cuenta oficial o mail asignado
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">Tipo de cuenta</label>
+                  <select
+                    value={accType}
+                    onChange={(e) => setAccType(e.target.value as any)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs"
+                  >
+                    <option value="email">Correo Electrónico (Email)</option>
+                    <option value="whatsapp">Línea WhatsApp del Local</option>
+                    <option value="mercadolibre">MercadoLibre / MercadoPago</option>
+                    <option value="banco_payway">Portal Banco / Payway</option>
+                    <option value="proveedor_portal">Portal de Pedidos de Proveedor</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Mail / Teléfono / Cuenta Oficial *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={accIdentifier}
+                    onChange={(e) => setAccIdentifier(e.target.value)}
+                    placeholder="Ej: compras@rodamientoshugo.com.ar"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Persona responsable que la usa *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={accUserName}
+                    onChange={(e) => setAccUserName(e.target.value)}
+                    placeholder="Ej: Martín (Encargado de Salón)"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">Rol asignado</label>
+                  <select
+                    value={accRole}
+                    onChange={(e) => setAccRole(e.target.value as JobRole)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs"
+                  >
+                    <option value="supervisor_general">Supervisor General (Hugo)</option>
+                    <option value="administrativo">Administrativo</option>
+                    <option value="supervisor_ventas">Supervisor de Ventas</option>
+                    <option value="encargado_salon">Encargado de Salón</option>
+                    <option value="vendedor">Vendedor</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    ¿Con qué personas / proveedores / clientes se comunica? *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={accScope}
+                    onChange={(e) => setAccScope(e.target.value)}
+                    placeholder="Ej: Pedidos a Alfa Rodamientos y reclamos de entregas"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Restricción de uso establecida por Hugo
+                  </label>
+                  <input
+                    type="text"
+                    value={accRestrictions}
+                    onChange={(e) => setAccRestrictions(e.target.value)}
+                    placeholder="Ej: Solo pedidos autorizados, sin acceso a pagos"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold cursor-pointer active:scale-95 transition-all"
+                >
+                  Registrar Cuenta Oficial
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 

@@ -533,4 +533,193 @@ describe('Backend API & Inventory Integration Tests', () => {
     expect(impProdData.found).toBe(true);
     expect(impProdData.product.stock).toBe(20);
   });
+
+  // Caso 21: Flujo completo de Pedidos a Proveedores (búsqueda POS por código/barra, comparador multi-proveedor, quién pide y quién confirma llegada + suma a stock)
+  it('completes supplier order flow: barcode/code lookup, multi-supplier comparison, orderedByName, arrival confirmation with receivedByName and automatic stock increment', async () => {
+    // 1. Registrar 2 proveedores reales
+    const sup1Res = await worker.fetch(
+      new Request(`${baseUrl}/api/suppliers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+        body: JSON.stringify({
+          name: 'ITURRIA',
+          phone: '01145551111',
+          leadTimeDays: 4,
+          freightPct: 5,
+          brandsSupplied: 'SKF, INA',
+        }),
+      }),
+      env,
+    );
+    expect(sup1Res.status).toBe(201);
+    const supIturria = (await sup1Res.json()) as any;
+
+    const sup2Res = await worker.fetch(
+      new Request(`${baseUrl}/api/suppliers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+        body: JSON.stringify({
+          name: 'ARCORE S.A.',
+          phone: '01145552222',
+          leadTimeDays: 3,
+          freightPct: 4,
+          brandsSupplied: 'SKF, DAYCO',
+        }),
+      }),
+      env,
+    );
+    expect(sup2Res.status).toBe(201);
+    const supArcore = (await sup2Res.json()) as any;
+
+    // 2. Crear producto asociado a ITURRIA con código de barras y código técnico
+    const createKitRes = await worker.fetch(
+      new Request(`${baseUrl}/api/products`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+        body: JSON.stringify({
+          sku: 'VKMA05012-TEST',
+          name: 'VKMA05012 KIT DISTRIBUCION CHEVROLET CORSA 1.6 8V',
+          brand: 'SKF',
+          priceCents: 6800000,
+          costCents: 4200000,
+          initialStock: 2,
+          minStock: 4,
+          targetStock: 8,
+          supplierName: 'ITURRIA',
+          supplierCode: 'VKMA05012',
+          freightPct: 5,
+          barcodes: ['7316575050122'],
+        }),
+      }),
+      env,
+    );
+    expect(createKitRes.status).toBe(201);
+    const kitProd = (await createKitRes.json()) as any;
+
+    // 3. Vincular opción alternativa más económica en ARCORE S.A.
+    const optRes = await worker.fetch(
+      new Request(`${baseUrl}/api/suppliers/product-option`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+        body: JSON.stringify({
+          productId: kitProd.id,
+          supplierId: supArcore.id,
+          supplierCode: 'VKMA05012',
+          brandOffered: 'SKF',
+          unitCostCents: 3800000,
+          freightPct: 4,
+          leadTimeDays: 3,
+          isPreferred: false,
+        }),
+      }),
+      env,
+    );
+    expect(optRes.status).toBe(200);
+
+    // 4. Buscar estilo Punto de Venta por código de barras y verificar proveedor habitual + comparador
+    const lookupRes = await worker.fetch(
+      new Request(`${baseUrl}/api/replenishment/lookup?q=7316575050122`, {
+        headers: { Cookie: sellerCookie },
+      }),
+      env,
+    );
+    expect(lookupRes.status).toBe(200);
+    const lookupData = (await lookupRes.json()) as any;
+    expect(lookupData.exactMatch).toBe(true);
+    expect(lookupData.items.length).toBe(1);
+    const foundCandidate = lookupData.items[0];
+    expect(foundCandidate.defaultSupplierName).toBe('ITURRIA');
+    expect(foundCandidate.supplierOptions.length).toBe(2);
+
+    const arcoreOpt = foundCandidate.supplierOptions.find((o: any) => o.supplierName === 'ARCORE S.A.');
+    const iturriaOpt = foundCandidate.supplierOptions.find((o: any) => o.supplierName === 'ITURRIA');
+    expect(arcoreOpt).toBeTruthy();
+    expect(iturriaOpt).toBeTruthy();
+    expect(arcoreOpt.isCheapest).toBe(true);
+    expect(iturriaOpt.isPreferred).toBe(true);
+
+    // 5. Generar pedido indicando quién pide (orderedByName)
+    const poCreateRes = await worker.fetch(
+      new Request(`${baseUrl}/api/purchase-orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: sellerCookie },
+        body: JSON.stringify({
+          supplierId: supArcore.id,
+          supplierName: 'ARCORE S.A.',
+          supplierPhone: '01145552222',
+          leadTimeDays: 3,
+          freightPct: 4,
+          orderedByName: 'Empleado Mostrador',
+          notes: 'Pedido urgente mostrador',
+          items: [
+            {
+              productId: kitProd.id,
+              sku: kitProd.sku,
+              name: kitProd.name,
+              brand: 'SKF',
+              supplierCode: 'VKMA05012',
+              originReason: 'manual',
+              quantity: 6,
+              unitCostCents: 3800000,
+              freightPct: 4,
+            },
+          ],
+        }),
+      }),
+      env,
+    );
+    expect(poCreateRes.status).toBe(201);
+    const createdOrder = (await poCreateRes.json()) as any;
+    expect(createdOrder.status).toBe('ordered');
+    expect(createdOrder.orderedByName).toBe('Empleado Mostrador');
+    expect(createdOrder.receivedByName).toBeNull();
+
+    // 6. Verificar en listado de pedidos que figura pendiente de llegada
+    const listOrdersRes = await worker.fetch(
+      new Request(`${baseUrl}/api/purchase-orders`, { headers: { Cookie: sellerCookie } }),
+      env,
+    );
+    expect(listOrdersRes.status).toBe(200);
+    const ordersList = (await listOrdersRes.json()) as any[];
+    expect(ordersList.some((o) => o.id === createdOrder.id && o.status === 'ordered')).toBe(true);
+
+    // 7. Confirmar llegada indicando quién confirma (receivedByName) y comprobar suma automática al stock (2 + 6 = 8)
+    const receiveRes = await worker.fetch(
+      new Request(`${baseUrl}/api/purchase-orders/${createdOrder.id}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+        body: JSON.stringify({
+          status: 'received',
+          receivedByName: 'Administrador Hugo',
+          receptionNotes: 'Llegaron 6 kits sellados OK',
+        }),
+      }),
+      env,
+    );
+    expect(receiveRes.status).toBe(200);
+    const receivedOrder = (await receiveRes.json()) as any;
+    expect(receivedOrder.status).toBe('received');
+    expect(receivedOrder.receivedByName).toBe('Administrador Hugo');
+    expect(receivedOrder.receivedAt).toBeTruthy();
+    expect(receivedOrder.receptionNotes).toBe('Llegaron 6 kits sellados OK');
+
+    // Comprobar stock actualizado a 8 y movimiento Kardex acreditando quién confirmó
+    const verifyProdRes = await worker.fetch(
+      new Request(`${baseUrl}/api/products/${kitProd.id}`, { headers: { Cookie: sellerCookie } }),
+      env,
+    );
+    const verifyProd = (await verifyProdRes.json()) as any;
+    expect(verifyProd.stock).toBe(8);
+
+    const verifyMovsRes = await worker.fetch(
+      new Request(`${baseUrl}/api/products/${kitProd.id}/movements`, { headers: { Cookie: adminCookie } }),
+      env,
+    );
+    const verifyMovs = (await verifyMovsRes.json()) as any;
+    expect(
+      verifyMovs.items.some(
+        (m: any) => m.type === 'purchase' && m.quantity === 6 && String(m.reason).includes('Confirmó: Administrador Hugo'),
+      ),
+    ).toBe(true);
+  });
 });

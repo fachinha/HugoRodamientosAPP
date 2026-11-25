@@ -51,6 +51,23 @@ const qty = (label: string, min = 0) =>
 export const roleSchema = z.enum(['admin', 'seller']);
 export type Role = z.infer<typeof roleSchema>;
 
+export const jobRoleSchema = z.enum([
+  'supervisor_general',
+  'administrativo',
+  'supervisor_ventas',
+  'encargado_salon',
+  'vendedor',
+]);
+export type JobRole = z.infer<typeof jobRoleSchema>;
+
+export const JOB_ROLE_LABELS: Record<JobRole, string> = {
+  supervisor_general: 'Supervisor General (Hugo)',
+  administrativo: 'Administrativo (Facturas, Compras, Impuestos)',
+  supervisor_ventas: 'Supervisor de Ventas',
+  encargado_salon: 'Encargado de Salón (Stock y Pedidos a Proveedores)',
+  vendedor: 'Vendedor de Mostrador (Tope 5% dto.)',
+};
+
 export const loginSchema = z.object({
   username: trimmed(1, 40, 'El usuario'),
   password: z.string().min(1, 'La contraseña es obligatoria').max(200),
@@ -78,14 +95,31 @@ export const userCreateSchema = z.object({
   displayName: trimmed(1, 80, 'El nombre'),
   password: passwordSchema,
   role: roleSchema,
+  jobRole: jobRoleSchema.optional(),
+  sellerNumber: optionalText(20, 'El número de vendedor'),
+  maxDiscountPct: z.number().min(0).max(100).optional(),
 });
 
 export const userUpdateSchema = z.object({
   displayName: trimmed(1, 80, 'El nombre').optional(),
   role: roleSchema.optional(),
+  jobRole: jobRoleSchema.optional(),
+  sellerNumber: optionalText(20, 'El número de vendedor'),
+  maxDiscountPct: z.number().min(0).max(100).optional(),
   active: z.boolean().optional(),
   password: passwordSchema.optional(),
 });
+
+export const officialAccountSchema = z.object({
+  accountType: z.enum(['email', 'whatsapp', 'mercadolibre', 'banco_payway', 'proveedor_portal']).default('email'),
+  accountIdentifier: trimmed(1, 150, 'La cuenta o correo oficial'),
+  assignedUserName: trimmed(1, 100, 'La persona responsable'),
+  assignedRole: jobRoleSchema.default('vendedor'),
+  contactsScope: trimmed(1, 500, 'Con quiénes se comunica esta cuenta'),
+  restrictionsNotes: optionalText(500, 'Las restricciones de uso'),
+  active: z.boolean().default(true),
+});
+export type OfficialAccountInput = z.infer<typeof officialAccountSchema>;
 
 // ---------------------------------------------------------------------------
 // Productos
@@ -102,6 +136,25 @@ const productBase = {
   minStock: qty('El stock mínimo').nullish().transform((v) => (v === undefined ? null : v)),
   targetStock: qty('El stock objetivo').nullish().transform((v) => (v === undefined ? null : v)),
   barcodes: z.array(codeSchema).max(10, 'Máximo 10 códigos por producto').default([]),
+
+  // Ubicación física en estanterías
+  shelfNumber: optionalText(20, 'El número de estantería'),
+  shelfLevel: optionalText(10, 'El nivel de estantería'),
+  compartment: optionalText(20, 'El compartimento'),
+  location: optionalText(60, 'La ubicación'),
+
+  // Medidas técnicas (rodamientos, retenes, piezas)
+  innerDiameterMm: z.number().min(0, 'El diámetro interior no puede ser negativo').nullish().transform((v) => (v === undefined ? null : v)),
+  outerDiameterMm: z.number().min(0, 'El diámetro exterior no puede ser negativo').nullish().transform((v) => (v === undefined ? null : v)),
+  widthMm: z.number().min(0, 'El ancho no puede ser negativo').nullish().transform((v) => (v === undefined ? null : v)),
+  dimensions: optionalText(80, 'Las medidas'),
+
+  // Proveedor habitual / de origen, flete y fechas de compra/venta
+  supplierName: optionalText(120, 'El proveedor'),
+  supplierCode: optionalText(80, 'El código de proveedor'),
+  freightPct: z.number().min(0, 'El flete no puede ser negativo').max(200).default(0),
+  lastPurchaseAt: optionalText(40, 'La fecha de última compra'),
+  lastSaleAt: optionalText(40, 'La fecha de última venta'),
 };
 
 function refineStock<T extends { minStock: number | null; targetStock: number | null; barcodes: string[] }>(
@@ -133,10 +186,13 @@ export type ProductCreateInput = z.input<typeof productCreateSchema>;
 export type ProductUpdateInput = z.input<typeof productUpdateSchema>;
 
 export const productListQuerySchema = z.object({
-  q: z.string().trim().max(40, 'Búsqueda demasiado larga').optional(),
+  q: z.string().trim().max(100, 'Búsqueda demasiado larga').optional(),
   categoryId: z.coerce.number().int().positive().optional(),
   brand: z.string().trim().max(80).optional(),
+  shelfNumber: z.string().trim().max(20).optional(),
+  supplierName: z.string().trim().max(120).optional(),
   status: z.enum(['all', 'out', 'low', 'ok', 'no_min', 'alert']).default('all'),
+  missing: z.enum(['all', 'price', 'cost', 'location', 'supplier', 'brand', 'dimensions', 'min_stock']).default('all'),
   active: z.enum(['1', '0', 'all']).default('1'),
   sort: z.enum(['name', 'sku', 'stock', 'price', 'updated', 'brand']).default('name'),
   dir: z.enum(['asc', 'desc']).default('asc'),
@@ -189,12 +245,24 @@ export const saleCreateSchema = z
   .object({
     idempotencyKey: idempotencyKeySchema,
     paymentMethodId: z.number({ error: 'Seleccioná un medio de pago' }).int().positive('Seleccioná un medio de pago'),
+    customerId: z.number().int().positive().nullish(),
     discountCents: cents('El descuento').default(0),
+    surchargeCents: cents('El recargo / interés').default(0),
+    installments: z.number().int().min(1).max(48).default(1),
+    cardType: z.enum(['debito', 'credito']).nullish(),
+    cardBrand: optionalText(40, 'La marca de tarjeta'),
+    exchangeRateUsd: z.number().positive().nullish(),
+    supervisorAuthorized: z.boolean().default(false),
+    supervisorAuthorizedBy: optionalText(80, 'Supervisor que autoriza'),
     notes: optionalText(500, 'La nota'),
     items: z
       .array(
         z.object({
-          productId: z.number().int().positive(),
+          productId: z.number().int().positive().optional(),
+          isManual: z.boolean().default(false),
+          manualDescription: optionalText(200, 'La descripción del producto manual'),
+          manualBrand: optionalText(80, 'La marca del producto manual'),
+          manualReason: optionalText(300, 'El motivo de carga manual'),
           quantity: qty('La cantidad', 1),
           expectedUnitPriceCents: cents('El precio'),
         }),
@@ -205,13 +273,59 @@ export const saleCreateSchema = z
   .superRefine((data, ctx) => {
     const ids = new Set<number>();
     data.items.forEach((it, i) => {
-      if (ids.has(it.productId)) {
-        ctx.addIssue({ code: 'custom', path: ['items', i], message: 'Producto repetido en la venta' });
+      if (it.isManual) {
+        if (!it.manualDescription || it.manualDescription.trim().length < 2) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['items', i, 'manualDescription'],
+            message: 'Ingresá la descripción del producto cargado manualmente',
+          });
+        }
+        if (!it.manualReason || it.manualReason.trim().length < 3) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['items', i, 'manualReason'],
+            message: 'Es obligatorio indicar el motivo de carga manual (ej. Solo en MercadoLibre)',
+          });
+        }
+      } else {
+        if (!it.productId) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['items', i, 'productId'],
+            message: 'Producto inválido',
+          });
+        } else {
+          if (ids.has(it.productId)) {
+            ctx.addIssue({ code: 'custom', path: ['items', i], message: 'Producto repetido en la venta' });
+          }
+          ids.add(it.productId);
+        }
       }
-      ids.add(it.productId);
     });
   });
 export type SaleCreateInput = z.input<typeof saleCreateSchema>;
+
+// Catálogos técnicos de proveedores
+export const supplierCatalogQuerySchema = z.object({
+  q: z.string().trim().max(100).optional(),
+  supplierName: z.string().trim().max(120).optional(),
+  brand: z.string().trim().max(80).optional(),
+  category: z.string().trim().max(80).optional(),
+  innerDiameter: z.coerce.number().positive().optional(),
+  outerDiameter: z.coerce.number().positive().optional(),
+  width: z.coerce.number().positive().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(30),
+});
+export type SupplierCatalogQuery = z.infer<typeof supplierCatalogQuerySchema>;
+
+// Tipo de cambio USD del día (Dólar Blue automático o manual)
+export const exchangeRateUpdateSchema = z.object({
+  rate: z.number().positive('El tipo de cambio debe ser mayor a 0').optional(),
+  mode: z.enum(['auto', 'manual']).optional(),
+});
+export type ExchangeRateUpdateInput = z.infer<typeof exchangeRateUpdateSchema>;
 
 export const saleReturnSchema = z.object({
   idempotencyKey: idempotencyKeySchema,
@@ -385,3 +499,11 @@ export const invoiceConfirmRequestSchema = z.object({
   items: z.array(invoiceConfirmItemSchema).min(1, 'Debe incluir al menos un artículo a ingresar'),
 });
 export type InvoiceConfirmRequest = z.infer<typeof invoiceConfirmRequestSchema>;
+
+export * from './quotes';
+export * from './crm';
+export * from './copilot';
+export * from './current-accounts';
+export * from './replenishment';
+export * from './finance-and-padron';
+

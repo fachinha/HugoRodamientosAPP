@@ -3,6 +3,7 @@ import type { ProductCreateInput, ProductUpdateInput } from '../../shared/schema
 import { Errors, isConstraintError } from '../lib/errors';
 import { auditStmt, nowIso, bool } from '../lib/db';
 import { normalizeCode } from '../../shared/barcode';
+import { parseSmartSearchQuery } from '../../shared/smartSearch';
 
 export interface ProductListItem {
   id: number;
@@ -22,6 +23,19 @@ export interface ProductListItem {
   barcodes: string[];
   primaryBarcode: string | null;
   lastMovementAt: string | null;
+  shelfNumber: string | null;
+  shelfLevel: string | null;
+  compartment: string | null;
+  location: string | null;
+  innerDiameterMm: number | null;
+  outerDiameterMm: number | null;
+  widthMm: number | null;
+  dimensions: string | null;
+  supplierName: string | null;
+  supplierCode: string | null;
+  freightPct: number;
+  lastPurchaseAt: string | null;
+  lastSaleAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -30,7 +44,10 @@ export interface ProductListFilter {
   q?: string;
   categoryId?: number;
   brand?: string;
+  shelfNumber?: string;
+  supplierName?: string;
   status?: 'all' | 'out' | 'low' | 'ok' | 'no_min' | 'alert';
+  missing?: 'all' | 'price' | 'cost' | 'location' | 'supplier' | 'brand' | 'dimensions' | 'min_stock';
   active?: '1' | '0' | 'all';
   sort?: 'name' | 'sku' | 'stock' | 'price' | 'updated' | 'brand';
   dir?: 'asc' | 'desc';
@@ -114,20 +131,82 @@ export class ProductsService {
       conditions.push('(p.stock = 0 OR (p.min_stock IS NOT NULL AND p.stock <= p.min_stock))');
     }
 
-    // Búsqueda libre (q)
+    // Filtro por estantería
+    if (filter.shelfNumber && filter.shelfNumber.trim()) {
+      conditions.push('(p.shelf_number = ? OR p.location LIKE ?)');
+      params.push(filter.shelfNumber.trim(), `%${filter.shelfNumber.trim()}%`);
+    }
+
+    // Filtro por proveedor
+    if (filter.supplierName && filter.supplierName.trim()) {
+      conditions.push('p.supplier_name LIKE ?');
+      params.push(`%${filter.supplierName.trim()}%`);
+    }
+
+    // Filtro por datos faltantes (Auditoría post-migración)
+    if (filter.missing === 'price') {
+      conditions.push('p.price_cents = 0');
+    } else if (filter.missing === 'cost') {
+      conditions.push('(p.cost_cents IS NULL OR p.cost_cents = 0)');
+    } else if (filter.missing === 'location') {
+      conditions.push("(p.location IS NULL OR trim(p.location) = '')");
+    } else if (filter.missing === 'supplier') {
+      conditions.push("(p.supplier_name IS NULL OR trim(p.supplier_name) = '')");
+    } else if (filter.missing === 'brand') {
+      conditions.push("(p.brand IS NULL OR trim(p.brand) = '')");
+    } else if (filter.missing === 'dimensions') {
+      conditions.push("(p.dimensions IS NULL OR trim(p.dimensions) = '')");
+    } else if (filter.missing === 'min_stock') {
+      conditions.push('p.min_stock IS NULL');
+    }
+
+    // Búsqueda libre multi-término independiente del orden e insensible a comas/espacios/guiones/variantes fonéticas
     if (filter.q && filter.q.trim()) {
-      const q = filter.q.trim();
-      const likePattern = `%${q}%`;
-      conditions.push(`(
-        p.sku LIKE ? OR
-        p.name LIKE ? OR
-        p.brand LIKE ? OR
-        EXISTS (
-          SELECT 1 FROM product_barcodes pb
-          WHERE pb.product_id = p.id AND pb.active = 1 AND pb.code LIKE ?
-        )
-      )`);
-      params.push(likePattern, likePattern, likePattern, likePattern);
+      const parsed = parseSmartSearchQuery(filter.q, 7);
+
+      for (const grp of parsed.groups) {
+        const subOr: string[] = [];
+        for (const variant of grp.variants) {
+          const likePattern = `%${variant}%`;
+          subOr.push(
+            'p.sku LIKE ?',
+            'p.name LIKE ?',
+            'p.brand LIKE ?',
+            'p.description LIKE ?',
+            'p.location LIKE ?',
+            'p.dimensions LIKE ?',
+            'p.supplier_code LIKE ?',
+            'p.supplier_name LIKE ?',
+            'EXISTS (SELECT 1 FROM product_barcodes pb WHERE pb.product_id = p.id AND pb.active = 1 AND pb.code LIKE ?)',
+          );
+          params.push(
+            likePattern,
+            likePattern,
+            likePattern,
+            likePattern,
+            likePattern,
+            likePattern,
+            likePattern,
+            likePattern,
+            likePattern,
+          );
+
+          if (grp.isCodeLike) {
+            const compactVar = variant.replace(/[^a-z0-9]/gi, '');
+            if (compactVar.length >= 3) {
+              const compactLike = `%${compactVar}%`;
+              subOr.push(
+                "REPLACE(REPLACE(REPLACE(REPLACE(p.name, ' ', ''), '-', ''), '.', ''), '/', '') LIKE ?",
+                "REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(p.supplier_code, ''), ' ', ''), '-', ''), '.', ''), '/', '') LIKE ?",
+              );
+              params.push(compactLike, compactLike);
+            }
+          }
+        }
+        if (subOr.length > 0) {
+          conditions.push(`(${subOr.join(' OR ')})`);
+        }
+      }
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -155,6 +234,9 @@ export class ProductsService {
       SELECT p.id, p.sku, p.name, p.description, p.brand, p.category_id,
              c.name AS category_name, p.unit, p.price_cents, p.cost_cents,
              p.stock, p.min_stock, p.target_stock, p.active, p.last_movement_at,
+             p.shelf_number, p.shelf_level, p.compartment, p.location,
+             p.inner_diameter_mm, p.outer_diameter_mm, p.width_mm, p.dimensions,
+             p.supplier_name, p.supplier_code, p.freight_pct, p.last_purchase_at, p.last_sale_at,
              p.created_at, p.updated_at
       FROM products p
       LEFT JOIN categories c ON c.id = p.category_id
@@ -215,6 +297,19 @@ export class ProductsService {
         barcodes: bInfo?.all ?? [],
         primaryBarcode: bInfo?.primary ?? (bInfo?.all[0] || null),
         lastMovementAt: r.last_movement_at,
+        shelfNumber: r.shelf_number ?? null,
+        shelfLevel: r.shelf_level ?? null,
+        compartment: r.compartment ?? null,
+        location: r.location ?? null,
+        innerDiameterMm: r.inner_diameter_mm ?? null,
+        outerDiameterMm: r.outer_diameter_mm ?? null,
+        widthMm: r.width_mm ?? null,
+        dimensions: r.dimensions ?? null,
+        supplierName: r.supplier_name ?? null,
+        supplierCode: r.supplier_code ?? null,
+        freightPct: r.freight_pct ?? 0,
+        lastPurchaseAt: r.last_purchase_at ?? null,
+        lastSaleAt: r.last_sale_at ?? null,
         createdAt: r.created_at,
         updatedAt: r.updated_at,
       };
@@ -235,6 +330,9 @@ export class ProductsService {
         `SELECT p.id, p.sku, p.name, p.description, p.brand, p.category_id,
                 c.name AS category_name, p.unit, p.price_cents, p.cost_cents,
                 p.stock, p.min_stock, p.target_stock, p.active, p.last_movement_at,
+                p.shelf_number, p.shelf_level, p.compartment, p.location,
+                p.inner_diameter_mm, p.outer_diameter_mm, p.width_mm, p.dimensions,
+                p.supplier_name, p.supplier_code, p.freight_pct, p.last_purchase_at, p.last_sale_at,
                 p.created_at, p.updated_at
          FROM products p
          LEFT JOIN categories c ON c.id = p.category_id
@@ -275,13 +373,26 @@ export class ProductsService {
       barcodes: all,
       primaryBarcode: primary,
       lastMovementAt: r.last_movement_at,
+      shelfNumber: r.shelf_number ?? null,
+      shelfLevel: r.shelf_level ?? null,
+      compartment: r.compartment ?? null,
+      location: r.location ?? null,
+      innerDiameterMm: r.inner_diameter_mm ?? null,
+      outerDiameterMm: r.outer_diameter_mm ?? null,
+      widthMm: r.width_mm ?? null,
+      dimensions: r.dimensions ?? null,
+      supplierName: r.supplier_name ?? null,
+      supplierCode: r.supplier_code ?? null,
+      freightPct: r.freight_pct ?? 0,
+      lastPurchaseAt: r.last_purchase_at ?? null,
+      lastSaleAt: r.last_sale_at ?? null,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
     };
   }
 
   /**
-   * Búsqueda precisa por código de barras o SKU (usado por el lector HID o teclado).
+   * Búsqueda precisa por código de barras, SKU o código de proveedor.
    */
   async getByCode(codeRaw: string): Promise<ProductListItem | null> {
     const code = normalizeCode(codeRaw);
@@ -311,6 +422,16 @@ export class ProductsService {
       return this.getById(bySku.id);
     }
 
+    // 3. Buscar por código de proveedor exacto
+    const bySupplierCode = await this.ctx.db
+      .prepare('SELECT id FROM products WHERE supplier_code = ? COLLATE NOCASE LIMIT 1')
+      .bind(code)
+      .first<{ id: number }>();
+
+    if (bySupplierCode) {
+      return this.getById(bySupplierCode.id);
+    }
+
     return null;
   }
 
@@ -319,6 +440,18 @@ export class ProductsService {
     const now = nowIso();
     const initialStock = data.initialStock ?? 0;
     const normBarcodes = (data.barcodes || []).map(normalizeCode).filter(Boolean);
+
+    // Calcular ubicación y medidas normalizadas si no vienen explícitas
+    const computedLocation =
+      data.location?.trim() ||
+      [data.shelfNumber?.trim(), data.shelfLevel?.trim(), data.compartment?.trim()].filter(Boolean).join('-') ||
+      null;
+
+    const computedDimensions =
+      data.dimensions?.trim() ||
+      (data.innerDiameterMm && data.outerDiameterMm
+        ? `${data.innerDiameterMm}x${data.outerDiameterMm}${data.widthMm ? 'x' + data.widthMm : ''} mm`
+        : null);
 
     // Validar si algún código de barra ya existe activo en la base
     if (normBarcodes.length > 0) {
@@ -357,8 +490,12 @@ export class ProductsService {
         .prepare(
           `INSERT INTO products (
             sku, name, description, brand, category_id, unit, price_cents, cost_cents,
-            stock, min_stock, target_stock, active, last_movement_at, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+            stock, min_stock, target_stock, active, last_movement_at,
+            shelf_number, shelf_level, compartment, location,
+            inner_diameter_mm, outer_diameter_mm, width_mm, dimensions,
+            supplier_name, supplier_code, freight_pct, last_purchase_at, last_sale_at,
+            created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           data.sku,
@@ -373,6 +510,19 @@ export class ProductsService {
           data.minStock ?? null,
           data.targetStock ?? null,
           initialStock > 0 ? now : null,
+          data.shelfNumber?.trim() || null,
+          data.shelfLevel?.trim() || null,
+          data.compartment?.trim() || null,
+          computedLocation,
+          data.innerDiameterMm ?? null,
+          data.outerDiameterMm ?? null,
+          data.widthMm ?? null,
+          computedDimensions,
+          data.supplierName?.trim() || null,
+          data.supplierCode?.trim() || null,
+          data.freightPct ?? 0,
+          data.lastPurchaseAt?.trim() || (initialStock > 0 ? now : null),
+          data.lastSaleAt?.trim() || null,
           now,
           now,
         ),
@@ -418,6 +568,7 @@ export class ProductsService {
           sku: data.sku,
           name: data.name,
           initialStock,
+          location: computedLocation,
         }),
       );
 
@@ -439,6 +590,17 @@ export class ProductsService {
     const categoryId = await this.ensureCategory(data.categoryName);
     const now = nowIso();
     const normBarcodes = (data.barcodes || []).map(normalizeCode).filter(Boolean);
+
+    const computedLocation =
+      data.location?.trim() ||
+      [data.shelfNumber?.trim(), data.shelfLevel?.trim(), data.compartment?.trim()].filter(Boolean).join('-') ||
+      null;
+
+    const computedDimensions =
+      data.dimensions?.trim() ||
+      (data.innerDiameterMm && data.outerDiameterMm
+        ? `${data.innerDiameterMm}x${data.outerDiameterMm}${data.widthMm ? 'x' + data.widthMm : ''} mm`
+        : null);
 
     // Validar SKU no duplicado en otro producto
     if (data.sku.toLowerCase() !== existing.sku.toLowerCase()) {
@@ -481,6 +643,11 @@ export class ProductsService {
           `UPDATE products SET
             sku = ?, name = ?, description = ?, brand = ?, category_id = ?,
             unit = ?, price_cents = ?, cost_cents = ?, min_stock = ?, target_stock = ?,
+            shelf_number = ?, shelf_level = ?, compartment = ?, location = ?,
+            inner_diameter_mm = ?, outer_diameter_mm = ?, width_mm = ?, dimensions = ?,
+            supplier_name = ?, supplier_code = ?, freight_pct = ?,
+            last_purchase_at = COALESCE(?, last_purchase_at),
+            last_sale_at = COALESCE(?, last_sale_at),
             updated_at = ?
            WHERE id = ?`,
         )
@@ -495,6 +662,19 @@ export class ProductsService {
           data.costCents ?? null,
           data.minStock ?? null,
           data.targetStock ?? null,
+          data.shelfNumber?.trim() || null,
+          data.shelfLevel?.trim() || null,
+          data.compartment?.trim() || null,
+          computedLocation,
+          data.innerDiameterMm ?? null,
+          data.outerDiameterMm ?? null,
+          data.widthMm ?? null,
+          computedDimensions,
+          data.supplierName?.trim() || null,
+          data.supplierCode?.trim() || null,
+          data.freightPct ?? 0,
+          data.lastPurchaseAt?.trim() || null,
+          data.lastSaleAt?.trim() || null,
           now,
           id,
         ),
@@ -518,12 +698,13 @@ export class ProductsService {
       );
     });
 
-    // 3. Auditoría
     batch.push(
       auditStmt(this.ctx, 'product.update', 'products', id, {
         sku: data.sku,
         name: data.name,
         priceCents: data.priceCents,
+        costCents: data.costCents,
+        location: computedLocation,
       }),
     );
 
@@ -550,5 +731,126 @@ export class ProductsService {
 
     await this.ctx.db.batch(batch);
     return this.getById(id);
+  }
+
+  /**
+   * Genera o enriquece la descripción técnica, aplicaciones vehiculares y códigos equivalentes de un producto usando IA + cruce en D1.
+   */
+  async generateAiDescription(input: {
+    sku?: string;
+    name?: string;
+    brand?: string | null;
+    dimensions?: string | null;
+    supplierName?: string | null;
+    supplierCode?: string | null;
+  }): Promise<{
+    description: string;
+    suggestedBrand: string | null;
+    suggestedCategory: string | null;
+    aiModelUsed: string;
+  }> {
+    const sku = (input.sku || '').trim();
+    const name = (input.name || '').trim();
+    const brand = (input.brand || '').trim() || null;
+    const dimensions = (input.dimensions || '').trim() || null;
+    const supplierName = (input.supplierName || '').trim() || null;
+    const supplierCode = (input.supplierCode || '').trim() || null;
+
+    if (!sku && !name && !supplierCode) {
+      throw Errors.badRequest('Ingresá al menos el código o nombre del producto para generar la descripción.');
+    }
+
+    // Buscar referencias reales en supplier_catalog_items o productos hermanos
+    const codeKey = (supplierCode || sku || name.split(/[\s-(]+/)[0] || '').replace(/[^A-Za-z0-9]/g, '');
+    let dbContextLines: string[] = [];
+    if (codeKey.length >= 3) {
+      const catHits = await this.ctx.db
+        .prepare(
+          `SELECT supplier_name, brand, category, code, name, application
+           FROM supplier_catalog_items
+           WHERE REPLACE(REPLACE(code, ' ', ''), '-', '') LIKE ? OR name LIKE ?
+           LIMIT 5`,
+        )
+        .bind(`%${codeKey}%`, `%${codeKey}%`)
+        .all<any>();
+      for (const r of catHits.results || []) {
+        dbContextLines.push(`[${r.supplier_name} · ${r.brand}] ${r.code}: ${r.name} — ${r.application || ''}`);
+      }
+    }
+
+    if (this.ctx.geminiApiKey && this.ctx.geminiApiKey !== 'tu-gemini-api-key-aqui') {
+      const models = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-flash-lite-latest'];
+      const prompt = `Sos un especialista técnico de mostrador en 'Rodamientos Hugo' (Bariloche, Argentina).
+Redactá una descripción técnica comercial clara, buscable y precisa para este artículo de repuestos / rodamientos:
+- SKU: ${sku || 'S/D'}
+- Código proveedor: ${supplierCode || 'S/D'}
+- Nombre: ${name || 'S/D'}
+- Marca: ${brand || 'S/D'}
+- Medidas: ${dimensions || 'S/D'}
+- Proveedor: ${supplierName || 'S/D'}
+${dbContextLines.length > 0 ? `\nReferencias en catálogos oficiales:\n${dbContextLines.join('\n')}` : ''}
+
+Reglas:
+1. Incluí: tipo de pieza exacto (ej: Bomba de Agua Automotor, Kit de Distribución, Rulemán rígido de bolas, Retén), vehículos/motores compatibles si se conocen con certeza, códigos equivalentes en otras marcas habituales en Argentina (SKF, DOLZ, VMG, CHIVILCOY, INA, GATES, DAYCO, SAV, DBH) y medidas si aplica.
+2. No uses frases publicitarias genéricas; escribí datos técnicos concretos para que el buscador encuentre el artículo por auto, motor, código o medida (máximo 350 caracteres).`;
+
+      for (const m of models) {
+        try {
+          const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent?key=${encodeURIComponent(this.ctx.geminiApiKey)}`;
+          const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ role: 'user', parts: [{ text: prompt }] }],
+              generationConfig: {
+                responseMimeType: 'application/json',
+                responseSchema: {
+                  type: 'OBJECT',
+                  properties: {
+                    description: { type: 'STRING' },
+                    suggestedBrand: { type: 'STRING', nullable: true },
+                    suggestedCategory: { type: 'STRING', nullable: true },
+                  },
+                  required: ['description'],
+                },
+              },
+            }),
+            signal: AbortSignal.timeout(7000),
+          });
+          if (res.ok) {
+            const data: any = await res.json();
+            const txt = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (txt) {
+              const parsed = JSON.parse(txt);
+              if (parsed.description) {
+                return {
+                  description: String(parsed.description).trim(),
+                  suggestedBrand: parsed.suggestedBrand || brand,
+                  suggestedCategory: parsed.suggestedCategory || null,
+                  aiModelUsed: m,
+                };
+              }
+            }
+          }
+        } catch {
+          // Intentar siguiente modelo
+        }
+      }
+    }
+
+    // Fallback determinístico con datos técnicos locales
+    const parts: string[] = [];
+    if (name) parts.push(name);
+    if (dbContextLines.length > 0) parts.push(dbContextLines[0]);
+    if (dimensions) parts.push(`Medidas: ${dimensions} mm`);
+    if (brand) parts.push(`Marca: ${brand}`);
+    if (supplierName) parts.push(`Proveedor: ${supplierName}`);
+
+    return {
+      description: parts.join(' · ').slice(0, 500),
+      suggestedBrand: brand,
+      suggestedCategory: null,
+      aiModelUsed: 'motor-tecnico-local',
+    };
   }
 }

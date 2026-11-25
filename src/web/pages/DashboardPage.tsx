@@ -11,6 +11,7 @@ import {
   Clock,
   PlusCircle,
   RefreshCw,
+  ClipboardCheck,
 } from 'lucide-react';
 import { apiFetch } from '../api/client';
 import { formatARS } from '../../shared/money';
@@ -178,6 +179,51 @@ export const DashboardPage: React.FC = () => {
           </Link>
         </div>
       )}
+
+      {/* Aviso de Datos Faltantes detectados en el sistema */}
+      {data?.missingDataSummary &&
+        (data.missingDataSummary.productsMissingPrice > 0 ||
+          data.missingDataSummary.customersMissingPhone > 0 ||
+          data.missingDataSummary.suppliersMissingContact > 0) && (
+          <div className="bg-white border border-orange-200 rounded-xl p-4 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="h-9 w-9 rounded-lg bg-orange-50 border border-orange-200 flex items-center justify-center text-orange-600 shrink-0">
+                <ClipboardCheck className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">
+                  Datos pendientes de completar tras la migración
+                </h3>
+                <p className="text-xs text-slate-600 mt-0.5">
+                  Detectamos{' '}
+                  <strong className="text-rose-700">
+                    {data.missingDataSummary.productsMissingPrice} productos en $0
+                  </strong>
+                  ,{' '}
+                  <strong className="text-amber-800">
+                    {data.missingDataSummary.productsMissingCost.toLocaleString('es-AR')} sin costo
+                  </strong>
+                  ,{' '}
+                  <strong className="text-indigo-800">
+                    {data.missingDataSummary.customersMissingPhone} clientes sin WhatsApp/teléfono
+                  </strong>{' '}
+                  y{' '}
+                  <strong className="text-slate-800">
+                    {data.missingDataSummary.suppliersMissingContact} proveedores con contacto incompleto
+                  </strong>
+                  .
+                </p>
+              </div>
+            </div>
+            <Link
+              to="/alerts?tab=data-quality"
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg shrink-0 self-start md:self-auto transition-all active:scale-96"
+            >
+              <span>Revisar datos faltantes</span>
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+        )}
 
       {/* Últimos Movimientos */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">

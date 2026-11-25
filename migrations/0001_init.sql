@@ -97,7 +97,7 @@ CREATE TABLE sales (
   payment_method_id  INTEGER NOT NULL REFERENCES payment_methods(id),
   subtotal_cents     INTEGER NOT NULL CHECK (subtotal_cents >= 0),
   discount_cents     INTEGER NOT NULL DEFAULT 0 CHECK (discount_cents >= 0 AND discount_cents <= subtotal_cents),
-  total_cents        INTEGER NOT NULL CHECK (total_cents = subtotal_cents - discount_cents),
+  total_cents        INTEGER NOT NULL CHECK (total_cents >= 0),
   refunded_cents     INTEGER NOT NULL DEFAULT 0 CHECK (refunded_cents >= 0 AND refunded_cents <= total_cents),
   status             TEXT    NOT NULL DEFAULT 'completed'
                        CHECK (status IN ('completed', 'partially_returned', 'returned', 'voided')),

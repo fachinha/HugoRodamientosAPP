@@ -78,8 +78,8 @@ export class StockService {
     // 3. Ejecutar batch atómico
     const batch = [
       this.ctx.db
-        .prepare('UPDATE products SET stock = stock + ?, last_movement_at = ?, updated_at = ? WHERE id = ?')
-        .bind(quantity, now, now, productId),
+        .prepare('UPDATE products SET stock = stock + ?, last_movement_at = ?, last_purchase_at = ?, updated_at = ? WHERE id = ?')
+        .bind(quantity, now, now, now, productId),
       this.ctx.db
         .prepare(
           `INSERT INTO stock_movements (

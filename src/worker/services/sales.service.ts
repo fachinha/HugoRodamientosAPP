@@ -10,10 +10,17 @@ export interface SaleDetail {
   idempotencyKey: string;
   userId: number;
   userName: string;
+  customerId?: number | null;
+  customerName?: string | null;
   paymentMethodId: number;
   paymentMethodName: string;
   subtotalCents: number;
   discountCents: number;
+  surchargeCents: number;
+  installments: number;
+  cardType?: 'debito' | 'credito' | null;
+  cardBrand?: string | null;
+  exchangeRateUsd: number | null;
   totalCents: number;
   refundedCents: number;
   status: 'completed' | 'partially_returned' | 'returned' | 'voided';
@@ -25,9 +32,12 @@ export interface SaleDetail {
     sku: string;
     name: string;
     unitPriceCents: number;
+    unitCostCents?: number | null;
     quantity: number;
     lineTotalCents: number;
     returnedQty: number;
+    isManual?: boolean;
+    manualReason?: string | null;
   }[];
 }
 
@@ -42,7 +52,21 @@ export class SalesService {
    * 4. Si el stock no alcanza, la restricción CHECK(stock >= 0) revierte todo el batch automáticamente.
    */
   async createSale(input: SaleCreateInput): Promise<SaleDetail> {
-    const { idempotencyKey, paymentMethodId, discountCents = 0, notes, items } = input;
+    const {
+      idempotencyKey,
+      paymentMethodId,
+      customerId = null,
+      discountCents = 0,
+      surchargeCents = 0,
+      installments = 1,
+      cardType = null,
+      cardBrand = null,
+      exchangeRateUsd = null,
+      supervisorAuthorized = false,
+      supervisorAuthorizedBy = null,
+      notes,
+      items,
+    } = input;
 
     // 1. Idempotencia: si ya existe la venta con esa clave, la devolvemos inmediatamente
     const existing = await this.ctx.db
@@ -64,53 +88,123 @@ export class SalesService {
       throw Errors.badRequest('El medio de pago seleccionado no es válido o está inactivo.');
     }
 
-    // 3. Consultar productos actuales en la base de datos
-    const productIds = items.map((i) => i.productId);
-    const placeholders = productIds.map(() => '?').join(',');
-    const dbProducts = await this.ctx.db
-      .prepare(
-        `SELECT id, sku, name, price_cents, stock, active
-         FROM products
-         WHERE id IN (${placeholders})`,
-      )
-      .bind(...productIds)
-      .all<{ id: number; sku: string; name: string; price_cents: number; stock: number; active: number }>();
+    const now = nowIso();
 
-    const prodMap = new Map(dbProducts.results.map((p) => [p.id, p]));
+    // 3. Consultar productos de catálogo actuales en la base de datos
+    const catalogProductIds = items.filter((i) => !i.isManual && i.productId).map((i) => i.productId as number);
+    const prodMap = new Map<
+      number,
+      { id: number; sku: string; name: string; price_cents: number; cost_cents: number | null; stock: number; active: number }
+    >();
 
-    // Validar productos, precios y stock
-    const pricedLines = items.map((item) => {
-      const prod = prodMap.get(item.productId);
-      if (!prod) {
-        throw Errors.notFound(`El producto ID ${item.productId}`);
-      }
-      if (prod.active !== 1) {
-        throw Errors.badRequest(`El producto "${prod.name}" (${prod.sku}) está inactivo y no puede venderse.`);
-      }
-      // Validar si el precio cambió mientras el vendedor preparaba el carrito
-      if (prod.price_cents !== item.expectedUnitPriceCents) {
-        throw Errors.conflict(
-          'PRICE_CHANGED',
-          `El precio de "${prod.name}" cambió de $ ${(item.expectedUnitPriceCents / 100).toFixed(2)} a $ ${(prod.price_cents / 100).toFixed(2)}. Revisá el carrito.`,
-          { productId: prod.id, oldPriceCents: item.expectedUnitPriceCents, newPriceCents: prod.price_cents },
-        );
-      }
-      // Validar stock disponible
-      if (prod.stock < item.quantity) {
-        throw Errors.conflict(
-          'INSUFFICIENT_STOCK',
-          `Stock insuficiente para "${prod.name}". Solicitado: ${item.quantity}, disponible en mostrador: ${prod.stock}.`,
-          { productId: prod.id, available: prod.stock, requested: item.quantity },
-        );
-      }
+    if (catalogProductIds.length > 0) {
+      const placeholders = catalogProductIds.map(() => '?').join(',');
+      const dbProducts = await this.ctx.db
+        .prepare(
+          `SELECT id, sku, name, price_cents, cost_cents, stock, active
+           FROM products
+           WHERE id IN (${placeholders})`,
+        )
+        .bind(...catalogProductIds)
+        .all<{ id: number; sku: string; name: string; price_cents: number; cost_cents: number | null; stock: number; active: number }>();
 
-      return {
-        product: prod,
-        quantity: item.quantity,
-        unitPriceCents: prod.price_cents,
-        lineTotalCents: prod.price_cents * item.quantity,
-      };
-    });
+      for (const p of dbProducts.results) {
+        prodMap.set(p.id, p);
+      }
+    }
+
+    // 4. Procesar ítems de catálogo e ítems de carga manual
+    const pricedLines: {
+      product: { id: number; sku: string; name: string; price_cents: number; cost_cents: number | null; stock: number; active: number };
+      quantity: number;
+      unitPriceCents: number;
+      unitCostCents: number | null;
+      lineTotalCents: number;
+      isManual: boolean;
+      manualReason: string | null;
+    }[] = [];
+
+    for (const item of items) {
+      if (item.isManual) {
+        const manualDesc = (item.manualDescription || 'Repuesto fuera de catálogo').trim();
+        const manualReason = (item.manualReason || 'Carga manual en mostrador').trim();
+        const manualBrand = item.manualBrand?.trim() || null;
+        const manualSku = `MAN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
+
+        const insertManualProd = await this.ctx.db
+          .prepare(
+            `INSERT INTO products (
+              sku, name, description, brand, unit, price_cents, cost_cents, stock, min_stock, active,
+              supplier_name, last_movement_at, last_sale_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, 'unidad', ?, NULL, ?, 0, 1, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            manualSku,
+            manualDesc,
+            `[CARGA MANUAL POS] Motivo: ${manualReason}`,
+            manualBrand,
+            item.expectedUnitPriceCents,
+            item.quantity,
+            manualReason,
+            now,
+            now,
+            now,
+            now,
+          )
+          .run();
+
+        const manualProductId = insertManualProd.meta.last_row_id;
+        pricedLines.push({
+          product: {
+            id: manualProductId,
+            sku: manualSku,
+            name: manualDesc,
+            price_cents: item.expectedUnitPriceCents,
+            cost_cents: null,
+            stock: item.quantity,
+            active: 1,
+          },
+          quantity: item.quantity,
+          unitPriceCents: item.expectedUnitPriceCents,
+          unitCostCents: null,
+          lineTotalCents: item.expectedUnitPriceCents * item.quantity,
+          isManual: true,
+          manualReason,
+        });
+      } else {
+        const prod = prodMap.get(item.productId!);
+        if (!prod) {
+          throw Errors.notFound(`El producto ID ${item.productId}`);
+        }
+        if (prod.active !== 1) {
+          throw Errors.badRequest(`El producto "${prod.name}" (${prod.sku}) está inactivo y no puede venderse.`);
+        }
+        if (prod.price_cents !== item.expectedUnitPriceCents) {
+          throw Errors.conflict(
+            'PRICE_CHANGED',
+            `El precio de "${prod.name}" cambió de $ ${(item.expectedUnitPriceCents / 100).toFixed(2)} a $ ${(prod.price_cents / 100).toFixed(2)}. Revisá el carrito.`,
+            { productId: prod.id, oldPriceCents: item.expectedUnitPriceCents, newPriceCents: prod.price_cents },
+          );
+        }
+        if (prod.stock < item.quantity) {
+          throw Errors.conflict(
+            'INSUFFICIENT_STOCK',
+            `Stock insuficiente para "${prod.name}". Solicitado: ${item.quantity}, disponible en mostrador: ${prod.stock}.`,
+            { productId: prod.id, available: prod.stock, requested: item.quantity },
+          );
+        }
+
+        pricedLines.push({
+          product: prod,
+          quantity: item.quantity,
+          unitPriceCents: prod.price_cents,
+          unitCostCents: prod.cost_cents ?? null,
+          lineTotalCents: prod.price_cents * item.quantity,
+          isManual: false,
+          manualReason: null,
+        });
+      }
+    }
 
     const calculatedSubtotal = subtotal(
       pricedLines.map((l) => ({ unitPriceCents: l.unitPriceCents, quantity: l.quantity })),
@@ -120,24 +214,27 @@ export class SalesService {
       throw Errors.badRequest('El descuento no puede superar el subtotal de la venta.');
     }
 
-    // Validar permisos sobre descuento
-    if (discountCents > 0 && this.ctx.user.role !== 'admin') {
+    // Validar permisos sobre descuento (tope de vendedor: 5% por defecto, salvo autorización de supervisor)
+    if (discountCents > 0 && this.ctx.user.role !== 'admin' && !supervisorAuthorized) {
       const maxDiscountRow = await this.ctx.db
         .prepare('SELECT value FROM settings WHERE key = ?')
         .bind('max_seller_discount_pct')
         .first<{ value: string }>();
-      const maxPct = maxDiscountRow ? Number(JSON.parse(maxDiscountRow.value)) : 0;
+      const maxPct = maxDiscountRow ? Number(JSON.parse(maxDiscountRow.value)) : 5;
       const appliedPct = (discountCents / calculatedSubtotal) * 100;
-      if (appliedPct > maxPct) {
+      if (appliedPct > maxPct + 0.01) {
         throw Errors.forbidden(
-          `Los vendedores pueden autorizar hasta un ${maxPct}% de descuento. Descuento solicitado: ${appliedPct.toFixed(1)}%. Requiere autorización de un administrador.`,
+          `Los vendedores pueden autorizar hasta un ${maxPct}% de descuento. Descuento solicitado: ${appliedPct.toFixed(1)}%. Pedile autorización al Supervisor de Ventas.`,
         );
       }
     }
 
-    const calculatedTotal = calculatedSubtotal - discountCents;
-    const now = nowIso();
+    const calculatedTotal = calculatedSubtotal - discountCents + surchargeCents;
     const requestHash = `hash_${items.length}_${calculatedTotal}`;
+    const finalNotes =
+      supervisorAuthorized && supervisorAuthorizedBy
+        ? `${notes ? notes + ' · ' : ''}[Dto. autorizado por Supervisor: ${supervisorAuthorizedBy}]`
+        : notes ?? null;
 
     // Paso 1: Insertar la venta para obtener su ID
     let saleId: number;
@@ -145,19 +242,26 @@ export class SalesService {
       const insertSaleRes = await this.ctx.db
         .prepare(
           `INSERT INTO sales (
-            idempotency_key, request_hash, user_id, payment_method_id,
-            subtotal_cents, discount_cents, total_cents, status, notes, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?)`,
+            idempotency_key, request_hash, user_id, payment_method_id, customer_id,
+            subtotal_cents, discount_cents, surcharge_cents, installments, card_type, card_brand, exchange_rate_usd,
+            total_cents, status, notes, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?)`,
         )
         .bind(
           idempotencyKey,
           requestHash,
           this.ctx.user.id,
           paymentMethodId,
+          customerId ?? null,
           calculatedSubtotal,
           discountCents,
+          surchargeCents,
+          installments,
+          cardType ?? null,
+          cardBrand ?? null,
+          exchangeRateUsd ?? null,
           calculatedTotal,
-          notes ?? null,
+          finalNotes,
           now,
         )
         .run();
@@ -183,13 +287,13 @@ export class SalesService {
     const batch: D1PreparedStatement[] = [];
 
     for (const line of pricedLines) {
-      // 1. Snapshot del item
+      // 1. Snapshot del item (con registro de carga manual y motivo si corresponde)
       batch.push(
         this.ctx.db
           .prepare(
             `INSERT INTO sale_items (
-              sale_id, product_id, sku, name, unit_price_cents, quantity, line_total_cents, returned_qty
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+              sale_id, product_id, sku, name, unit_price_cents, unit_cost_cents, quantity, line_total_cents, returned_qty, is_manual, manual_reason
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
           )
           .bind(
             saleId,
@@ -197,20 +301,23 @@ export class SalesService {
             line.product.sku,
             line.product.name,
             line.unitPriceCents,
+            line.unitCostCents,
             line.quantity,
             line.lineTotalCents,
+            line.isManual ? 1 : 0,
+            line.manualReason,
           ),
       );
 
-      // 2. Descuento de stock en producto
+      // 2. Descuento de stock en producto + actualización de fecha de última venta (last_sale_at)
       batch.push(
         this.ctx.db
           .prepare(
             `UPDATE products
-             SET stock = stock - ?, last_movement_at = ?, updated_at = ?
+             SET stock = stock - ?, last_movement_at = ?, last_sale_at = ?, updated_at = ?
              WHERE id = ?`,
           )
-          .bind(line.quantity, now, now, line.product.id),
+          .bind(line.quantity, now, now, now, line.product.id),
       );
 
       // 3. Movimiento de inventario auditable
@@ -266,14 +373,17 @@ export class SalesService {
   async getSaleById(id: number): Promise<SaleDetail | null> {
     const sale = await this.ctx.db
       .prepare(
-        `SELECT s.id, s.idempotency_key, s.user_id, s.payment_method_id,
-                s.subtotal_cents, s.discount_cents, s.total_cents, s.refunded_cents,
+        `SELECT s.id, s.idempotency_key, s.user_id, s.payment_method_id, s.customer_id,
+                s.subtotal_cents, s.discount_cents, s.surcharge_cents, s.installments, s.card_type, s.card_brand, s.exchange_rate_usd,
+                s.total_cents, s.refunded_cents,
                 s.status, s.notes, s.created_at,
                 u.display_name AS user_name,
-                pm.name AS payment_method_name
+                pm.name AS payment_method_name,
+                c.name AS customer_name
          FROM sales s
          JOIN users u ON u.id = s.user_id
          JOIN payment_methods pm ON pm.id = s.payment_method_id
+         LEFT JOIN customers c ON c.id = s.customer_id
          WHERE s.id = ?`,
       )
       .bind(id)
@@ -283,7 +393,7 @@ export class SalesService {
 
     const items = await this.ctx.db
       .prepare(
-        `SELECT id, product_id, sku, name, unit_price_cents, quantity, line_total_cents, returned_qty
+        `SELECT id, product_id, sku, name, unit_price_cents, unit_cost_cents, quantity, line_total_cents, returned_qty, is_manual, manual_reason
          FROM sale_items
          WHERE sale_id = ?
          ORDER BY id ASC`,
@@ -297,10 +407,17 @@ export class SalesService {
       idempotencyKey: sale.idempotency_key,
       userId: sale.user_id,
       userName: sale.user_name,
+      customerId: sale.customer_id ?? null,
+      customerName: sale.customer_name ?? null,
       paymentMethodId: sale.payment_method_id,
       paymentMethodName: sale.payment_method_name,
       subtotalCents: sale.subtotal_cents,
       discountCents: sale.discount_cents,
+      surchargeCents: sale.surcharge_cents ?? 0,
+      installments: sale.installments ?? 1,
+      cardType: sale.card_type ?? null,
+      cardBrand: sale.card_brand ?? null,
+      exchangeRateUsd: sale.exchange_rate_usd ?? null,
       totalCents: sale.total_cents,
       refundedCents: sale.refunded_cents,
       status: sale.status,
@@ -312,9 +429,12 @@ export class SalesService {
         sku: it.sku,
         name: it.name,
         unitPriceCents: it.unit_price_cents,
+        unitCostCents: it.unit_cost_cents ?? null,
         quantity: it.quantity,
         lineTotalCents: it.line_total_cents,
         returnedQty: it.returned_qty,
+        isManual: it.is_manual === 1,
+        manualReason: it.manual_reason ?? null,
       })),
     };
   }
@@ -585,7 +705,8 @@ export class SalesService {
     const { results } = await this.ctx.db
       .prepare(
         `SELECT s.id, s.idempotency_key, s.user_id, s.payment_method_id,
-                s.subtotal_cents, s.discount_cents, s.total_cents, s.refunded_cents,
+                s.subtotal_cents, s.discount_cents, s.surcharge_cents, s.total_cents, s.refunded_cents,
+                s.installments, s.card_type, s.card_brand, s.exchange_rate_usd,
                 s.status, s.notes, s.created_at,
                 u.display_name AS user_name,
                 pm.name AS payment_method_name
@@ -603,7 +724,7 @@ export class SalesService {
     const sales: SaleDetail[] = [];
     for (const r of results) {
       const items = await this.ctx.db
-        .prepare('SELECT id, product_id, sku, name, unit_price_cents, quantity, line_total_cents, returned_qty FROM sale_items WHERE sale_id = ?')
+        .prepare('SELECT id, product_id, sku, name, unit_price_cents, quantity, line_total_cents, returned_qty, is_manual, manual_reason FROM sale_items WHERE sale_id = ?')
         .bind(r.id)
         .all<any>();
 
@@ -617,8 +738,13 @@ export class SalesService {
         paymentMethodName: r.payment_method_name,
         subtotalCents: r.subtotal_cents,
         discountCents: r.discount_cents,
+        surchargeCents: r.surcharge_cents ?? 0,
         totalCents: r.total_cents,
         refundedCents: r.refunded_cents,
+        installments: r.installments ?? 1,
+        cardType: r.card_type ?? null,
+        cardBrand: r.card_brand ?? null,
+        exchangeRateUsd: r.exchange_rate_usd ?? null,
         status: r.status,
         notes: r.notes,
         createdAt: r.created_at,
@@ -631,6 +757,8 @@ export class SalesService {
           quantity: it.quantity,
           lineTotalCents: it.line_total_cents,
           returnedQty: it.returned_qty,
+          isManual: it.is_manual === 1,
+          manualReason: it.manual_reason ?? null,
         })),
       });
     }
