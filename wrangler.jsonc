@@ -44,7 +44,7 @@
         {
           "binding": "DB",
           "database_name": "rodamientos-hugo-prod",
-          "database_id": "REEMPLAZAR-CON-ID-DE-D1-PRODUCCION",
+          "database_id": "ac7c8cea-16c7-496e-b8e1-f4714e28b57a",
           "migrations_dir": "migrations"
         }
       ]
