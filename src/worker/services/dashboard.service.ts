@@ -1,6 +1,7 @@
 import type { ServiceContext } from '../env';
 import { argentinaDayRangeUtc } from '../../shared/time';
 import { MOVEMENT_TYPE_LABELS } from './stock.service';
+import { getOrComputeCached } from '../lib/cache';
 
 export interface DashboardData {
   productsCount: number;
@@ -35,36 +36,41 @@ export class DashboardService {
   constructor(private ctx: ServiceContext) {}
 
   async getDashboardData(): Promise<DashboardData> {
-    const [productsRow, custMissingRow, supMissingRow] = await Promise.all([
-      this.ctx.db
-        .prepare(
-          `SELECT
-            COUNT(*) AS total_products,
-            SUM(CASE WHEN stock = 0 AND (min_stock IS NOT NULL OR last_movement_at IS NOT NULL) THEN 1 ELSE 0 END) AS out_count,
-            SUM(CASE WHEN stock > 0 AND min_stock IS NOT NULL AND stock <= min_stock THEN 1 ELSE 0 END) AS low_count,
-            SUM(CASE WHEN price_cents = 0 AND (stock > 0 OR last_movement_at IS NOT NULL OR last_purchase_at IS NOT NULL OR last_sale_at IS NOT NULL OR COALESCE(supplier_name, '') <> 'BRAMCO') THEN 1 ELSE 0 END) AS no_price_count,
-            SUM(CASE WHEN (cost_cents IS NULL OR cost_cents = 0) AND (stock > 0 OR last_movement_at IS NOT NULL OR last_purchase_at IS NOT NULL OR last_sale_at IS NOT NULL OR COALESCE(supplier_name, '') <> 'BRAMCO') THEN 1 ELSE 0 END) AS no_cost_count,
-            SUM(CASE WHEN stock = 0 AND min_stock IS NULL AND last_movement_at IS NULL AND (last_purchase_at IS NOT NULL OR last_sale_at IS NOT NULL OR id <= 7050) THEN 1 ELSE 0 END) AS uncounted_stock_count
-           FROM products
-           WHERE active = 1`,
-        )
-        .first<{
-          total_products: number;
-          out_count: number | null;
-          low_count: number | null;
-          no_price_count: number | null;
-          no_cost_count: number | null;
-          uncounted_stock_count: number | null;
-        }>(),
-      this.ctx.db
-        .prepare(`SELECT COUNT(*) AS cnt FROM customers WHERE phone IS NULL OR trim(phone) = ''`)
-        .first<{ cnt: number | null }>(),
-      this.ctx.db
-        .prepare(
-          `SELECT COUNT(*) AS cnt FROM suppliers WHERE active = 1 AND (phone IS NULL OR trim(phone) = '' OR cuit IS NULL OR trim(cuit) = '')`,
-        )
-        .first<{ cnt: number | null }>(),
-    ]);
+    const [productsRow, custMissingRow, supMissingRow] = await getOrComputeCached(
+      'dashboard:catalog_aggregates',
+      90_000,
+      () =>
+        Promise.all([
+          this.ctx.db
+            .prepare(
+              `SELECT
+                COUNT(*) AS total_products,
+                SUM(CASE WHEN stock = 0 AND (min_stock IS NOT NULL OR last_movement_at IS NOT NULL) THEN 1 ELSE 0 END) AS out_count,
+                SUM(CASE WHEN stock > 0 AND min_stock IS NOT NULL AND stock <= min_stock THEN 1 ELSE 0 END) AS low_count,
+                SUM(CASE WHEN price_cents = 0 AND (stock > 0 OR last_movement_at IS NOT NULL OR last_purchase_at IS NOT NULL OR last_sale_at IS NOT NULL OR COALESCE(supplier_name, '') <> 'BRAMCO') THEN 1 ELSE 0 END) AS no_price_count,
+                SUM(CASE WHEN (cost_cents IS NULL OR cost_cents = 0) AND (stock > 0 OR last_movement_at IS NOT NULL OR last_purchase_at IS NOT NULL OR last_sale_at IS NOT NULL OR COALESCE(supplier_name, '') <> 'BRAMCO') THEN 1 ELSE 0 END) AS no_cost_count,
+                SUM(CASE WHEN stock = 0 AND min_stock IS NULL AND last_movement_at IS NULL AND (last_purchase_at IS NOT NULL OR last_sale_at IS NOT NULL OR id <= 7050) THEN 1 ELSE 0 END) AS uncounted_stock_count
+               FROM products
+               WHERE active = 1`,
+            )
+            .first<{
+              total_products: number;
+              out_count: number | null;
+              low_count: number | null;
+              no_price_count: number | null;
+              no_cost_count: number | null;
+              uncounted_stock_count: number | null;
+            }>(),
+          this.ctx.db
+            .prepare(`SELECT COUNT(*) AS cnt FROM customers WHERE phone IS NULL OR trim(phone) = ''`)
+            .first<{ cnt: number | null }>(),
+          this.ctx.db
+            .prepare(
+              `SELECT COUNT(*) AS cnt FROM suppliers WHERE active = 1 AND (phone IS NULL OR trim(phone) = '' OR cuit IS NULL OR trim(cuit) = '')`,
+            )
+            .first<{ cnt: number | null }>(),
+        ]),
+    );
 
     const productsCount = productsRow?.total_products ?? 0;
     const outOfStockCount = productsRow?.out_count ?? 0;

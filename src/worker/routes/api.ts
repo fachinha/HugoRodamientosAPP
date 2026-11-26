@@ -10,6 +10,7 @@ import { SettingsService } from '../services/settings.service';
 import { ImportExportService } from '../services/import-export.service';
 import { InvoicesService } from '../services/invoices.service';
 import { Errors, parseOrThrow } from '../lib/errors';
+import { invalidateReadCache } from '../lib/cache';
 import {
   productCreateSchema,
   productUpdateSchema,
@@ -73,6 +74,12 @@ export const apiRoutes = new Hono<AppEnv>();
 
 // Todas las rutas bajo /api requieren autenticación (excepto /auth que está separada)
 apiRoutes.use('*', requireAuth);
+apiRoutes.use('*', async (c, next) => {
+  await next();
+  if (c.req.method !== 'GET' && c.req.method !== 'HEAD' && c.req.method !== 'OPTIONS') {
+    invalidateReadCache();
+  }
+});
 
 function createCtx(c: any): ServiceContext {
   return {

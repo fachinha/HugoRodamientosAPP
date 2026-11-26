@@ -1,6 +1,7 @@
 import type { ServiceContext } from '../env';
 import type { SupplierCatalogQuery } from '../../shared/schemas';
 import { parseSmartSearchQuery } from '../../shared/smartSearch';
+import { getOrComputeCached, buildFtsMatchQuery } from '../lib/cache';
 
 export interface SupplierCatalogItem {
   id: number;
@@ -109,49 +110,80 @@ export class CatalogsService {
       params.push(filter.width);
     }
 
-    // Búsqueda inteligente sin orden de palabras (izquierda<->derecha) e ignorando comas/espacios/guiones
+    // Búsqueda inteligente con FTS5 primero (~20 filas leídas en lugar de 250.000) y fallback a LIKE
     if (filter.q && filter.q.trim()) {
       const parsed = parseSmartSearchQuery(filter.q, 7);
-      for (const grp of parsed.groups) {
-        const orClauses: string[] = [];
-        for (const variant of grp.variants) {
-          const like = `%${variant}%`;
-          orClauses.push(
-            'code LIKE ?',
-            'name LIKE ?',
-            'brand LIKE ?',
-            'supplier_name LIKE ?',
-            'application LIKE ?',
-            'original_code LIKE ?',
-            'dimensions LIKE ?',
-          );
-          params.push(like, like, like, like, like, like, like);
+      let resolvedViaFts = false;
+      const ftsMatch = buildFtsMatchQuery(parsed);
 
-          if (grp.isCodeLike) {
-            const compactVar = variant.replace(/[^a-z0-9]/gi, '');
-            if (compactVar.length >= 3) {
-              const compactLike = `%${compactVar}%`;
-              orClauses.push(
-                "REPLACE(REPLACE(REPLACE(REPLACE(code, ' ', ''), '-', ''), '.', ''), '/', '') LIKE ?",
-                "REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(original_code, ''), ' ', ''), '-', ''), '.', ''), '/', '') LIKE ?",
-              );
-              params.push(compactLike, compactLike);
+      if (ftsMatch) {
+        try {
+          const ftsRows = await this.ctx.db
+            .prepare(`SELECT rowid AS id FROM catalog_items_fts WHERE catalog_items_fts MATCH ? LIMIT 400`)
+            .bind(ftsMatch)
+            .all<{ id: number }>();
+
+          const matchedIds = (ftsRows.results || []).map((r) => r.id);
+          if (matchedIds.length > 0) {
+            conditions.push(`id IN (${matchedIds.join(',')})`);
+            resolvedViaFts = true;
+          }
+        } catch {
+          // Fallback automático a LIKE si FTS5 no está disponible
+        }
+      }
+
+      if (!resolvedViaFts) {
+        for (const grp of parsed.groups) {
+          const orClauses: string[] = [];
+          for (const variant of grp.variants) {
+            const like = `%${variant}%`;
+            orClauses.push(
+              'code LIKE ?',
+              'name LIKE ?',
+              'brand LIKE ?',
+              'supplier_name LIKE ?',
+              'application LIKE ?',
+              'original_code LIKE ?',
+              'dimensions LIKE ?',
+            );
+            params.push(like, like, like, like, like, like, like);
+
+            if (grp.isCodeLike) {
+              const compactVar = variant.replace(/[^a-z0-9]/gi, '');
+              if (compactVar.length >= 3) {
+                const compactLike = `%${compactVar}%`;
+                orClauses.push(
+                  "REPLACE(REPLACE(REPLACE(REPLACE(code, ' ', ''), '-', ''), '.', ''), '/', '') LIKE ?",
+                  "REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(original_code, ''), ' ', ''), '-', ''), '.', ''), '/', '') LIKE ?",
+                );
+                params.push(compactLike, compactLike);
+              }
             }
           }
-        }
-        if (orClauses.length > 0) {
-          conditions.push(`(${orClauses.join(' OR ')})`);
+          if (orClauses.length > 0) {
+            conditions.push(`(${orClauses.join(' OR ')})`);
+          }
         }
       }
     }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const countRow = await this.ctx.db
-      .prepare(`SELECT COUNT(*) AS total FROM supplier_catalog_items ${where}`)
-      .bind(...params)
-      .first<{ total: number }>();
-    const total = countRow?.total ?? 0;
+    const isUnfiltered = conditions.length === 0 && params.length === 0;
+    const total = isUnfiltered
+      ? await getOrComputeCached('catalogs:total_count', 600_000, async () => {
+          const r = await this.ctx.db
+            .prepare('SELECT COUNT(*) AS total FROM supplier_catalog_items')
+            .first<{ total: number }>();
+          return r?.total ?? 0;
+        })
+      : ((
+          await this.ctx.db
+            .prepare(`SELECT COUNT(*) AS total FROM supplier_catalog_items ${where}`)
+            .bind(...params)
+            .first<{ total: number }>()
+        )?.total ?? 0);
 
     const querySql = `
       SELECT id, supplier_name, brand, category, code, name,
@@ -200,27 +232,29 @@ export class CatalogsService {
     categories: string[];
     totalItems: number;
   }> {
-    const [totalRow, suppliersRes, brandsRes, categoriesRes] = await Promise.all([
-      this.ctx.db
-        .prepare('SELECT COUNT(*) AS total FROM supplier_catalog_items')
-        .first<{ total: number }>(),
-      this.ctx.db
-        .prepare('SELECT DISTINCT supplier_name FROM supplier_catalog_items WHERE supplier_name IS NOT NULL ORDER BY supplier_name ASC')
-        .all<{ supplier_name: string }>(),
-      this.ctx.db
-        .prepare('SELECT DISTINCT brand FROM supplier_catalog_items WHERE brand IS NOT NULL ORDER BY brand ASC')
-        .all<{ brand: string }>(),
-      this.ctx.db
-        .prepare('SELECT DISTINCT category FROM supplier_catalog_items WHERE category IS NOT NULL ORDER BY category ASC')
-        .all<{ category: string }>(),
-    ]);
+    return getOrComputeCached('catalogs:metadata', 600_000, async () => {
+      const [totalRow, suppliersRes, brandsRes, categoriesRes] = await Promise.all([
+        this.ctx.db
+          .prepare('SELECT COUNT(*) AS total FROM supplier_catalog_items')
+          .first<{ total: number }>(),
+        this.ctx.db
+          .prepare('SELECT DISTINCT supplier_name FROM supplier_catalog_items WHERE supplier_name IS NOT NULL ORDER BY supplier_name ASC')
+          .all<{ supplier_name: string }>(),
+        this.ctx.db
+          .prepare('SELECT DISTINCT brand FROM supplier_catalog_items WHERE brand IS NOT NULL ORDER BY brand ASC')
+          .all<{ brand: string }>(),
+        this.ctx.db
+          .prepare('SELECT DISTINCT category FROM supplier_catalog_items WHERE category IS NOT NULL ORDER BY category ASC')
+          .all<{ category: string }>(),
+      ]);
 
-    return {
-      suppliers: suppliersRes.results.map((s) => s.supplier_name),
-      brands: brandsRes.results.map((b) => b.brand),
-      categories: categoriesRes.results.map((c) => c.category),
-      totalItems: totalRow?.total ?? 0,
-    };
+      return {
+        suppliers: suppliersRes.results.map((s) => s.supplier_name),
+        brands: brandsRes.results.map((b) => b.brand),
+        categories: categoriesRes.results.map((c) => c.category),
+        totalItems: totalRow?.total ?? 0,
+      };
+    });
   }
 
   /**
@@ -391,16 +425,63 @@ Devolvé estrictamente JSON con:
     }
 
     const isAdmin = this.ctx.user.role === 'admin';
-    const prodSql = `
-      SELECT p.id, p.sku, p.name, p.description, p.brand, p.supplier_name,
-             p.price_cents, p.cost_cents, p.stock, p.dimensions
-      FROM products p
-      WHERE p.active = 1 AND (${mainBranches.join(' OR ')})
-      ORDER BY p.stock DESC, CASE WHEN p.price_cents > 0 THEN 0 ELSE 1 END, p.id ASC
-      LIMIT 60
-    `;
+    let ftsMatchedProdIds: number[] = [];
+    try {
+      const ftsBranches: string[] = [];
+      const baseFts = buildFtsMatchQuery(parsed);
+      if (baseFts) ftsBranches.push(`(${baseFts})`);
 
-    const prodRes = await this.ctx.db.prepare(prodSql).bind(...allParams).all<any>();
+      const cleanEqTokens = equivalentCodes
+        .map((c) => c.toLowerCase().replace(/[^a-z0-9]/gi, ''))
+        .filter((c) => c.length >= 3);
+      if (cleanEqTokens.length > 0) {
+        const eqFts = cleanEqTokens.map((c) => `"${c}"*`).join(' OR ');
+        if (parsed.brandOptionGroup.length > 0) {
+          const brandFts = parsed.brandOptionGroup
+            .map((b) => b.toLowerCase().replace(/[^a-z0-9]/gi, ''))
+            .filter((b) => b.length >= 2)
+            .map((b) => `"${b}"*`)
+            .join(' OR ');
+          ftsBranches.push(brandFts ? `((${eqFts}) AND (${brandFts}))` : `(${eqFts})`);
+        } else {
+          ftsBranches.push(`(${eqFts})`);
+        }
+      }
+
+      if (ftsBranches.length > 0) {
+        const ftsRes = await this.ctx.db
+          .prepare(`SELECT rowid AS id FROM products_fts WHERE products_fts MATCH ? LIMIT 250`)
+          .bind(ftsBranches.join(' OR '))
+          .all<{ id: number }>();
+        ftsMatchedProdIds = (ftsRes.results || []).map((r) => r.id);
+      }
+    } catch {
+      // Fallback automático a consulta LIKE si FTS5 no está inicializado
+    }
+
+    const prodRes =
+      ftsMatchedProdIds.length > 0
+        ? await this.ctx.db
+            .prepare(
+              `SELECT p.id, p.sku, p.name, p.description, p.brand, p.supplier_name,
+                      p.price_cents, p.cost_cents, p.stock, p.dimensions
+               FROM products p
+               WHERE p.active = 1 AND p.id IN (${ftsMatchedProdIds.join(',')})
+               ORDER BY p.stock DESC, CASE WHEN p.price_cents > 0 THEN 0 ELSE 1 END, p.id ASC
+               LIMIT 60`,
+            )
+            .all<any>()
+        : await this.ctx.db
+            .prepare(
+              `SELECT p.id, p.sku, p.name, p.description, p.brand, p.supplier_name,
+                      p.price_cents, p.cost_cents, p.stock, p.dimensions
+               FROM products p
+               WHERE p.active = 1 AND (${mainBranches.join(' OR ')})
+               ORDER BY p.stock DESC, CASE WHEN p.price_cents > 0 THEN 0 ELSE 1 END, p.id ASC
+               LIMIT 60`,
+            )
+            .bind(...allParams)
+            .all<any>();
     const combinedItems: AiCatalogOptionItem[] = (prodRes.results || []).map((r) => ({
       source: 'inventory',
       productId: r.id,

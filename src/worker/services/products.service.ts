@@ -4,6 +4,7 @@ import { Errors, isConstraintError } from '../lib/errors';
 import { auditStmt, nowIso, bool } from '../lib/db';
 import { normalizeCode } from '../../shared/barcode';
 import { parseSmartSearchQuery } from '../../shared/smartSearch';
+import { getOrComputeCached, buildFtsMatchQuery } from '../lib/cache';
 
 export interface ProductListItem {
   id: number;
@@ -160,51 +161,89 @@ export class ProductsService {
       conditions.push('p.min_stock IS NULL');
     }
 
-    // Búsqueda libre multi-término independiente del orden e insensible a comas/espacios/guiones/variantes fonéticas
+    // Búsqueda libre multi-término: primero usa índice invertido FTS5 (~20 lecturas en vez de 250.000)
+    // y cae automáticamente a LIKE solo si FTS5 no encuentra coincidencias (ej. subcadenas intermedias).
     if (filter.q && filter.q.trim()) {
       const parsed = parseSmartSearchQuery(filter.q, 7);
+      let resolvedViaFts = false;
+      const ftsMatch = buildFtsMatchQuery(parsed);
 
-      for (const grp of parsed.groups) {
-        const subOr: string[] = [];
-        for (const variant of grp.variants) {
-          const likePattern = `%${variant}%`;
-          subOr.push(
-            'p.sku LIKE ?',
-            'p.name LIKE ?',
-            'p.brand LIKE ?',
-            'p.description LIKE ?',
-            'p.location LIKE ?',
-            'p.dimensions LIKE ?',
-            'p.supplier_code LIKE ?',
-            'p.supplier_name LIKE ?',
-            'EXISTS (SELECT 1 FROM product_barcodes pb WHERE pb.product_id = p.id AND pb.active = 1 AND pb.code LIKE ?)',
-          );
-          params.push(
-            likePattern,
-            likePattern,
-            likePattern,
-            likePattern,
-            likePattern,
-            likePattern,
-            likePattern,
-            likePattern,
-            likePattern,
+      if (ftsMatch) {
+        try {
+          const cleanRaw = filter.q.trim();
+          const ftsRows = await this.ctx.db
+            .prepare(
+              `SELECT rowid AS id FROM products_fts WHERE products_fts MATCH ? LIMIT 400`,
+            )
+            .bind(ftsMatch)
+            .all<{ id: number }>();
+
+          const barcodeRows = await this.ctx.db
+            .prepare(
+              `SELECT product_id AS id FROM product_barcodes WHERE active = 1 AND code LIKE ? LIMIT 50`,
+            )
+            .bind(`%${cleanRaw}%`)
+            .all<{ id: number }>();
+
+          const matchedIds = Array.from(
+            new Set([
+              ...(ftsRows.results || []).map((r) => r.id),
+              ...(barcodeRows.results || []).map((r) => r.id),
+            ]),
           );
 
-          if (grp.isCodeLike) {
-            const compactVar = variant.replace(/[^a-z0-9]/gi, '');
-            if (compactVar.length >= 3) {
-              const compactLike = `%${compactVar}%`;
-              subOr.push(
-                "REPLACE(REPLACE(REPLACE(REPLACE(p.name, ' ', ''), '-', ''), '.', ''), '/', '') LIKE ?",
-                "REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(p.supplier_code, ''), ' ', ''), '-', ''), '.', ''), '/', '') LIKE ?",
-              );
-              params.push(compactLike, compactLike);
+          if (matchedIds.length > 0) {
+            conditions.push(`p.id IN (${matchedIds.join(',')})`);
+            resolvedViaFts = true;
+          }
+        } catch {
+          // Si la tabla FTS5 aún no existe en entorno aislado, usar LIKE debajo
+        }
+      }
+
+      if (!resolvedViaFts) {
+        for (const grp of parsed.groups) {
+          const subOr: string[] = [];
+          for (const variant of grp.variants) {
+            const likePattern = `%${variant}%`;
+            subOr.push(
+              'p.sku LIKE ?',
+              'p.name LIKE ?',
+              'p.brand LIKE ?',
+              'p.description LIKE ?',
+              'p.location LIKE ?',
+              'p.dimensions LIKE ?',
+              'p.supplier_code LIKE ?',
+              'p.supplier_name LIKE ?',
+              'EXISTS (SELECT 1 FROM product_barcodes pb WHERE pb.product_id = p.id AND pb.active = 1 AND pb.code LIKE ?)',
+            );
+            params.push(
+              likePattern,
+              likePattern,
+              likePattern,
+              likePattern,
+              likePattern,
+              likePattern,
+              likePattern,
+              likePattern,
+              likePattern,
+            );
+
+            if (grp.isCodeLike) {
+              const compactVar = variant.replace(/[^a-z0-9]/gi, '');
+              if (compactVar.length >= 3) {
+                const compactLike = `%${compactVar}%`;
+                subOr.push(
+                  "REPLACE(REPLACE(REPLACE(REPLACE(p.name, ' ', ''), '-', ''), '.', ''), '/', '') LIKE ?",
+                  "REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(p.supplier_code, ''), ' ', ''), '-', ''), '.', ''), '/', '') LIKE ?",
+                );
+                params.push(compactLike, compactLike);
+              }
             }
           }
-        }
-        if (subOr.length > 0) {
-          conditions.push(`(${subOr.join(' OR ')})`);
+          if (subOr.length > 0) {
+            conditions.push(`(${subOr.join(' OR ')})`);
+          }
         }
       }
     }
@@ -223,11 +262,22 @@ export class ProductsService {
     const sortCol = sortFieldMap[filter.sort ?? 'name'] || 'p.name COLLATE NOCASE';
     const sortDir = filter.dir === 'desc' ? 'DESC' : 'ASC';
 
-    // Total
-    const countSql = `SELECT COUNT(*) AS total FROM products p ${whereClause}`;
-    const countStmt = this.ctx.db.prepare(countSql);
-    const countRow = await (params.length > 0 ? countStmt.bind(...params) : countStmt).first<{ total: number }>();
-    const total = countRow?.total ?? 0;
+    // Total (cacheado 120s cuando es listado general sin filtros para ahorrar 128k lecturas por página)
+    const isDefaultActiveOnly = conditions.length === 1 && conditions[0] === 'p.active = 1' && params.length === 0;
+    let total = 0;
+    if (isDefaultActiveOnly) {
+      total = await getOrComputeCached('products:total_active', 120_000, async () => {
+        const r = await this.ctx.db
+          .prepare('SELECT COUNT(*) AS total FROM products p WHERE p.active = 1')
+          .first<{ total: number }>();
+        return r?.total ?? 0;
+      });
+    } else {
+      const countSql = `SELECT COUNT(*) AS total FROM products p ${whereClause}`;
+      const countStmt = this.ctx.db.prepare(countSql);
+      const countRow = await (params.length > 0 ? countStmt.bind(...params) : countStmt).first<{ total: number }>();
+      total = countRow?.total ?? 0;
+    }
 
     // Items
     const itemsSql = `

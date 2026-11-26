@@ -1,5 +1,6 @@
 import type { ServiceContext } from '../env';
 import { stockStatus, suggestReplenishment, replenishmentPriority, type StockStatus } from '../../shared/stock';
+import { getOrComputeCached } from '../lib/cache';
 
 export interface StockAlertItem {
   productId: number;
@@ -86,52 +87,54 @@ export class AlertsService {
     missingDataCriticalCount: number;
     totalRequiringAttention: number;
   }> {
-    const [row, custRow, supRow] = await Promise.all([
-      this.ctx.db
-        .prepare(
-          `SELECT
-            SUM(CASE WHEN stock = 0 AND (min_stock IS NOT NULL OR last_movement_at IS NOT NULL) THEN 1 ELSE 0 END) AS out_count,
-            SUM(CASE WHEN stock > 0 AND min_stock IS NOT NULL AND stock <= min_stock THEN 1 ELSE 0 END) AS low_count,
-            SUM(CASE WHEN stock > 0 AND min_stock IS NULL THEN 1 ELSE 0 END) AS no_min_count,
-            SUM(CASE WHEN stock = 0 AND min_stock IS NULL AND last_movement_at IS NULL AND (last_purchase_at IS NOT NULL OR last_sale_at IS NOT NULL OR id <= 7050) THEN 1 ELSE 0 END) AS uncounted_count,
-            SUM(CASE WHEN price_cents = 0 AND (stock > 0 OR last_movement_at IS NOT NULL OR last_purchase_at IS NOT NULL OR last_sale_at IS NOT NULL OR COALESCE(supplier_name, '') <> 'BRAMCO') THEN 1 ELSE 0 END) AS missing_price_count
-           FROM products
-           WHERE active = 1`,
-        )
-        .first<{
-          out_count: number | null;
-          low_count: number | null;
-          no_min_count: number | null;
-          uncounted_count: number | null;
-          missing_price_count: number | null;
-        }>(),
-      this.ctx.db
-        .prepare(
-          `SELECT COUNT(*) AS cnt FROM customers WHERE phone IS NULL OR trim(phone) = ''`,
-        )
-        .first<{ cnt: number | null }>(),
-      this.ctx.db
-        .prepare(
-          `SELECT COUNT(*) AS cnt FROM suppliers WHERE active = 1 AND (phone IS NULL OR trim(phone) = '')`,
-        )
-        .first<{ cnt: number | null }>(),
-    ]);
+    return getOrComputeCached('alerts:summary', 120_000, async () => {
+      const [row, custRow, supRow] = await Promise.all([
+        this.ctx.db
+          .prepare(
+            `SELECT
+              SUM(CASE WHEN stock = 0 AND (min_stock IS NOT NULL OR last_movement_at IS NOT NULL) THEN 1 ELSE 0 END) AS out_count,
+              SUM(CASE WHEN stock > 0 AND min_stock IS NOT NULL AND stock <= min_stock THEN 1 ELSE 0 END) AS low_count,
+              SUM(CASE WHEN stock > 0 AND min_stock IS NULL THEN 1 ELSE 0 END) AS no_min_count,
+              SUM(CASE WHEN stock = 0 AND min_stock IS NULL AND last_movement_at IS NULL AND (last_purchase_at IS NOT NULL OR last_sale_at IS NOT NULL OR id <= 7050) THEN 1 ELSE 0 END) AS uncounted_count,
+              SUM(CASE WHEN price_cents = 0 AND (stock > 0 OR last_movement_at IS NOT NULL OR last_purchase_at IS NOT NULL OR last_sale_at IS NOT NULL OR COALESCE(supplier_name, '') <> 'BRAMCO') THEN 1 ELSE 0 END) AS missing_price_count
+             FROM products
+             WHERE active = 1`,
+          )
+          .first<{
+            out_count: number | null;
+            low_count: number | null;
+            no_min_count: number | null;
+            uncounted_count: number | null;
+            missing_price_count: number | null;
+          }>(),
+        this.ctx.db
+          .prepare(
+            `SELECT COUNT(*) AS cnt FROM customers WHERE phone IS NULL OR trim(phone) = ''`,
+          )
+          .first<{ cnt: number | null }>(),
+        this.ctx.db
+          .prepare(
+            `SELECT COUNT(*) AS cnt FROM suppliers WHERE active = 1 AND (phone IS NULL OR trim(phone) = '')`,
+          )
+          .first<{ cnt: number | null }>(),
+      ]);
 
-    const outOfStock = row?.out_count ?? 0;
-    const lowStock = row?.low_count ?? 0;
-    const undefinedMin = row?.no_min_count ?? 0;
-    const uncountedMigratedStock = row?.uncounted_count ?? 0;
-    const missingDataCriticalCount =
-      (row?.missing_price_count ?? 0) + (custRow?.cnt ?? 0) + (supRow?.cnt ?? 0);
+      const outOfStock = row?.out_count ?? 0;
+      const lowStock = row?.low_count ?? 0;
+      const undefinedMin = row?.no_min_count ?? 0;
+      const uncountedMigratedStock = row?.uncounted_count ?? 0;
+      const missingDataCriticalCount =
+        (row?.missing_price_count ?? 0) + (custRow?.cnt ?? 0) + (supRow?.cnt ?? 0);
 
-    return {
-      outOfStock,
-      lowStock,
-      undefinedMin,
-      uncountedMigratedStock,
-      missingDataCriticalCount,
-      totalRequiringAttention: outOfStock + lowStock,
-    };
+      return {
+        outOfStock,
+        lowStock,
+        undefinedMin,
+        uncountedMigratedStock,
+        missingDataCriticalCount,
+        totalRequiringAttention: outOfStock + lowStock,
+      };
+    });
   }
 
   async getDataQualityReport(): Promise<DataQualityReport> {
